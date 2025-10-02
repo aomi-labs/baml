@@ -7,9 +7,10 @@ description = "BAML Virtual Machine"
 license-file.workspace = true
 
 [dependencies]
-colored = "2.1.0"
+colored.workspace = true
 tokio = { workspace = true }
 baml-types = { path = "../baml-lib/baml-types" }
+internal-baml-diagnostics = { path = "../baml-lib/diagnostics" }
 
 [lints.clippy]
 new_without_default = "allow"
@@ -17,10 +18,12 @@ new_without_default = "allow"
 [dev-dependencies]
 anyhow = { workspace = true }
 baml-compiler = { path = "../baml-compiler" }
+baml-runtime = { path = "../baml-runtime" }
 internal-baml-core = { path = "../baml-lib/baml-core" }
 internal-baml-diagnostics = { path = "../baml-lib/diagnostics" }
 internal-baml-parser-database = { path = "../baml-lib/parser-database" }
 criterion = "0.5"
+indexmap = { workspace = true }
 
 [[bench]]
 name = "fib"

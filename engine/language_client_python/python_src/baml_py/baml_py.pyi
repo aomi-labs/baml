@@ -2,6 +2,8 @@ from __future__ import annotations
 from typing_extensions import Literal
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+TickReason = Literal["Unknown"]
+
 def get_version() -> str:
     """Get the version of the BAML Python client."""
     ...
@@ -23,6 +25,34 @@ def get_log_level() -> str:
 def set_log_max_chunk_length(length: int) -> None:
     """Set the maximum log chunk length for the BAML Python client."""
     ...
+
+class AbortController:
+    """Controller for cancelling BAML operations."""
+
+    def __init__(self, timeout_ms: Optional[int] = None) -> None:
+        """
+        Creates a new abort controller with an optional timeout in milliseconds.
+        Once aborted, the AbortController will forever remain in an an aborted state.
+        The timeout will only start AFTER the object is passed to a BAML function.
+
+        Args:
+            timeout_ms: The timeout in milliseconds. If not provided, AbortController will not timeout.
+        """
+        ...
+
+    def abort(self) -> None:
+        """
+        Immediately abort all operations.
+        """
+        ...
+
+    @property
+    def aborted(self) -> bool:
+        """
+        Check the state of this controller.
+        Once aborted, the AbortController will forever remain in an an aborted state.
+        """
+        ...
 
 class FunctionResult:
     """The result of a BAML function call.
@@ -47,6 +77,7 @@ class FunctionResult:
         class_module: Any,
         partial_class_module: Any,
         allow_partials: bool,
+        runtime: BamlRuntime,
     ) -> Any: ...
 
     # This is a debug function that returns the internal representation of the response
@@ -109,7 +140,7 @@ class BamlPdfPy:
     @staticmethod
     def from_url(url: str) -> BamlPdfPy: ...
     @staticmethod
-    def from_base64(media_type: str, base64: str) -> BamlPdfPy: ...
+    def from_base64(base64: str) -> BamlPdfPy: ...
     def is_url(self) -> bool: ...
     def is_base64(self) -> bool: ...
     def as_url(self) -> str: ...
@@ -144,6 +175,8 @@ class BamlRuntime:
         cr: Optional[ClientRegistry],
         collectors: List[Collector],
         env_vars: Dict[str, str],
+        tags: Optional[Dict[str, str]] = None,
+        abort_controller: Optional[AbortController] = None,
     ) -> FunctionResult: ...
     def call_function_sync(
         self,
@@ -154,6 +187,8 @@ class BamlRuntime:
         cr: Optional[ClientRegistry],
         collectors: List[Collector],
         env_vars: Dict[str, str],
+        tags: Optional[Dict[str, str]] = None,
+        abort_controller: Optional[AbortController] = None,
     ) -> FunctionResult: ...
     @staticmethod
     def from_files(
@@ -172,6 +207,8 @@ class BamlRuntime:
         cr: Optional[ClientRegistry],
         collectors: List[Collector],
         env_vars: Dict[str, str],
+        tags: Optional[Dict[str, str]] = None,
+        on_tick: Optional[Callable[[], None]] = None,
     ) -> FunctionResultStream: ...
     def stream_function_sync(
         self,
@@ -183,6 +220,8 @@ class BamlRuntime:
         cr: Optional[ClientRegistry],
         collectors: List[Collector],
         env_vars: Dict[str, str],
+        tags: Optional[Dict[str, str]] = None,
+        on_tick: Optional[Callable[[], None]] = None,
     ) -> SyncFunctionResultStream: ...
     def create_context_manager(self) -> RuntimeContextManager: ...
     def flush(self) -> None: ...
@@ -302,6 +341,7 @@ class Collector:
     @property
     def usage(self) -> Usage: ...
     def id(self, function_log_id: str) -> Optional[FunctionLog]: ...
+    def clear(self) -> None: ...
     # For debugging
     @staticmethod
     def __function_call_count() -> int: ...
@@ -329,6 +369,8 @@ class FunctionLog:
     def raw_llm_response(self) -> Optional[str]: ...
     @property
     def metadata(self) -> Dict[str, Any]: ...
+    @property
+    def tags(self) -> Dict[str, Any]: ...
     @property
     def selected_call(self) -> Optional[Union[LLMCall, LLMStreamCall]]: ...
 
@@ -401,6 +443,8 @@ class Usage:
     def input_tokens(self) -> Optional[int]: ...
     @property
     def output_tokens(self) -> Optional[int]: ...
+    @property
+    def cached_input_tokens(self) -> Optional[int]: ...
 
 class Timing:
     def __init__(

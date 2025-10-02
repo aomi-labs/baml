@@ -307,25 +307,25 @@ impl BamlEventLoggable<'_> {
                         parsed_response: None,
                         error: None,
                     },
-                    LLMResponse::UserFailure(msg) | LLMResponse::InternalFailure(msg) => {
-                        BamlEventJson {
-                            function_name: self.function_name.to_string(),
-                            start_time,
-                            num_tries,
-                            total_tries,
-                            client: "unknown".to_string(),
-                            model: "unknown".to_string(),
-                            latency_ms: 0,
-                            stop_reason: None,
-                            prompt: None,
-                            llm_reply: None,
-                            request_options_json: None,
-                            tokens: None,
-                            parsed_response_type: None,
-                            parsed_response: None,
-                            error: Some(msg.clone()),
-                        }
-                    }
+                    LLMResponse::UserFailure(msg)
+                    | LLMResponse::InternalFailure(msg)
+                    | LLMResponse::Cancelled(msg) => BamlEventJson {
+                        function_name: self.function_name.to_string(),
+                        start_time,
+                        num_tries,
+                        total_tries,
+                        client: "unknown".to_string(),
+                        model: "unknown".to_string(),
+                        latency_ms: 0,
+                        stop_reason: None,
+                        prompt: None,
+                        llm_reply: None,
+                        request_options_json: None,
+                        tokens: None,
+                        parsed_response_type: None,
+                        parsed_response: None,
+                        error: Some(msg.clone()),
+                    },
                 }
             }
             Err(error) => BamlEventJson {
@@ -408,9 +408,23 @@ impl BamlTracer {
         is_stream: bool,
         // baml_src_hash: Option<String>,
         collectors: Option<Vec<Arc<Collector>>>,
+        tags: Option<&HashMap<String, String>>,
     ) -> TracingCall {
         self.trace_stats.guard().start();
-        let (call_id, call_stack, last_tags, global_tags) = ctx.enter(function_name);
+        let (call_id, call_stack, mut ctx_tags, global_tags) = ctx.enter(function_name);
+
+        if let Some(tag_map) = tags {
+            if !tag_map.is_empty() {
+                log::debug!("start_call: incoming tags: {:#?}", tag_map);
+                let tag_values: HashMap<String, BamlValue> = tag_map
+                    .iter()
+                    .map(|(k, v)| (k.clone(), BamlValue::String(v.clone())))
+                    .collect();
+                ctx.upsert_tags(tag_values.clone());
+                ctx_tags.extend(tag_values);
+                log::debug!("start_call: ctx_tags after extend: {:#?}", ctx_tags);
+            }
+        }
 
         log::trace!(
             "\n{}------------------- Entering {:?}, ctx chain {:#?}",
@@ -427,7 +441,7 @@ impl BamlTracer {
             start_time: web_time::SystemTime::now(),
             // Note these tags are the ones currently on the stack. While the function runs we may register
             // more tags with set_tags(). Those are picked up via a diff event (SetTags)
-            tags: last_tags.clone(),
+            tags: ctx_tags.clone(),
         };
         // println!("---- {} ctx {:#?}", function_name, ctx);
         // baml_log::info!("---- {} ctx {:#?}", function_name, ctx);
@@ -460,7 +474,7 @@ impl BamlTracer {
             EvaluationContext {
                 tags: global_tags
                     .into_iter()
-                    .chain(last_tags)
+                    .chain(ctx_tags)
                     .map(|(k, v)| (k, serde_json::to_value(v).unwrap_or_default()))
                     .collect(),
             },
@@ -885,6 +899,12 @@ fn error_from_result(result: &FunctionResult) -> Option<api_wrapper::core_types:
                 traceback: None,
                 r#override: None,
             }),
+            LLMResponse::Cancelled(s) => Some(api_wrapper::core_types::Error {
+                code: 2,
+                message: format!("Cancelled: {s}"),
+                traceback: None,
+                r#override: None,
+            }),
         },
     }
 }
@@ -1097,6 +1117,20 @@ impl From<&LLMResponse> for LLMEventSchema {
                 },
                 output: None,
                 error: Some(s.message.clone()),
+            },
+            LLMResponse::Cancelled(s) => LLMEventSchema {
+                model_name: "<unknown>".into(),
+                provider: "<unknown>".into(),
+                input: LLMEventInput {
+                    prompt: LLMEventInputPrompt {
+                        template: Template::Single("<cancelled>".into()),
+                        template_args: Default::default(),
+                        r#override: None,
+                    },
+                    request_options: Default::default(),
+                },
+                output: None,
+                error: Some(format!("Cancelled: {s}")),
             },
         }
     }

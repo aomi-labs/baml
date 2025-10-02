@@ -223,7 +223,7 @@ Checkout our [guide on getting started](/CONTRIBUTING.md)
 You can cite the BAML repo as follows:
 ```bibtex
 @software{baml,
-  author = {Vaibhav Gupta, Aaron Villalpando and Boundary ML team},
+  author = {Boundary ML},
   title = {BAML},
   url = {https://github.com/boundaryml/baml},
   year = {2024}
@@ -236,7 +236,7 @@ Made with ❤️ by Boundary
 
 HQ in Seattle, WA
 
-P.S. We're hiring for software engineers that love rust. [Email us](founders@boundaryml.com) or reach out on [discord](https://discord.gg/ENtBB6kkXH)!
+P.S. We're hiring for software engineers that love rust. [Email us](mailto:founders@boundaryml.com) or reach out on [discord](https://discord.gg/ENtBB6kkXH)!
 
 <div align="left" style="align-items: left;">
         <a href="#top">

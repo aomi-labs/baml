@@ -6,7 +6,7 @@ If you need to modify the model / parameters for an LLM client at runtime, you c
 
 <Tabs>
 
-<Tab title="Python">
+<Tab title="Python" language="python">
 
 ```python
 import os
@@ -16,7 +16,7 @@ async def run():
     cr = ClientRegistry()
     # Creates a new client
     cr.add_llm_client(name='MyAmazingClient', provider='openai', options={
-        "model": "gpt-4o",
+        "model": "gpt-5-mini",
         "temperature": 0.7,
         "api_key": os.environ.get('OPENAI_API_KEY')
     })
@@ -36,7 +36,7 @@ async def run():
 
 </Tab>
 
-<Tab title="TypeScript">
+<Tab title="TypeScript" language="typescript">
 ```typescript
 import { ClientRegistry } from '@boundaryml/baml'
 
@@ -44,7 +44,7 @@ async function run() {
     const cr = new ClientRegistry()
     // Creates a new client
     cr.addLlmClient('MyAmazingClient', 'openai', {
-        model: "gpt-4o",
+        model: "gpt-5-mini",
         temperature: 0.7,
         api_key: process.env.OPENAI_API_KEY
     })
@@ -64,7 +64,7 @@ async function run() {
 ```
 </Tab>
 
-<Tab title="Ruby">
+<Tab title="Ruby" language="ruby">
 
 ```ruby
 require_relative "baml_client/client"
@@ -77,7 +77,7 @@ def run
     'MyAmazingClient',
     'openai',
     {
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
       temperature: 0.7,
       api_key: ENV['OPENAI_API_KEY']
     }
@@ -105,7 +105,7 @@ run
 ```
 </Tab>
 
-<Tab title="Go">
+<Tab title="Go" language="go">
 
 ```go
 package main
@@ -126,7 +126,7 @@ func main() {
     
     // Creates a new client
     err := cr.AddLLMClient("MyAmazingClient", "openai", map[string]interface{}{
-        "model":       "gpt-4o",
+        "model":       "gpt-5-mini",
         "temperature": 0.7,
         "api_key":     os.Getenv("OPENAI_API_KEY"),
     })
@@ -157,7 +157,7 @@ func main() {
 ```
 </Tab>
 
-<Tab title="OpenAPI">
+<Tab title="OpenAPI" language="openapi">
 
 The API supports passing client registry as a field on `__baml_options__` in the request body.
 
@@ -174,7 +174,7 @@ Example request body:
                     "provider": "openai",
                     "retry_policy": null,
                     "options": {
-                        "model": "gpt-4o-mini",
+                        "model": "gpt-5-mini",
                         "api_key": "sk-..."
                     }
                 },

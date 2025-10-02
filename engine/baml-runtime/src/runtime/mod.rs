@@ -64,6 +64,7 @@ impl InternalBamlRuntime {
     pub(super) fn from_file_content<T: AsRef<str>>(
         directory: &str,
         files: &HashMap<T, T>,
+        feature_flags: internal_baml_core::feature_flags::FeatureFlags,
     ) -> Result<Self> {
         let contents = files
             .iter()
@@ -74,10 +75,13 @@ impl InternalBamlRuntime {
                 )))
             })
             .collect::<Result<Vec<_>>>()?;
-        let mut schema = validate(&PathBuf::from(directory), contents.clone());
+        let mut schema = validate(&PathBuf::from(directory), contents.clone(), feature_flags);
         schema.diagnostics.to_result()?;
 
         let ir = IntermediateRepr::from_parser_database(&schema.db, schema.configuration)?;
+        ir.validate_test_args(&mut schema.diagnostics);
+        schema.diagnostics.to_result()?;
+
         Ok(InternalBamlRuntime {
             ir: Arc::new(ir),
             db: schema.db,
@@ -88,7 +92,11 @@ impl InternalBamlRuntime {
         })
     }
 
-    pub(super) fn from_files(directory: &Path, files: Vec<PathBuf>) -> Result<Self> {
+    pub(super) fn from_files(
+        directory: &Path,
+        files: Vec<PathBuf>,
+        feature_flags: internal_baml_core::feature_flags::FeatureFlags,
+    ) -> Result<Self> {
         let contents: Vec<SourceFile> = files
             .iter()
             .map(|path| match std::fs::read_to_string(path) {
@@ -97,10 +105,12 @@ impl InternalBamlRuntime {
             })
             .filter_map(|res| res.ok())
             .collect();
-        let mut schema = validate(directory, contents.clone());
+        let mut schema = validate(directory, contents.clone(), feature_flags);
         schema.diagnostics.to_result()?;
 
         let ir = IntermediateRepr::from_parser_database(&schema.db, schema.configuration)?;
+        ir.validate_test_args(&mut schema.diagnostics);
+        schema.diagnostics.to_result()?;
 
         Ok(Self {
             ir: Arc::new(ir),

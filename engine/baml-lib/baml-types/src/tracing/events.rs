@@ -239,7 +239,7 @@ pub struct LoggedLLMRequest {
     pub prompt: Vec<LLMChatMessage>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone)]
 pub struct HTTPBody {
     raw: Vec<u8>,
 }
@@ -297,6 +297,28 @@ impl HTTPBody {
                         .collect(),
                 )
             })
+    }
+}
+
+// Custom serialization: always serialize as text; if invalid UTF-8, serialize as base64
+impl serde::Serialize for HTTPBody {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Serialize as text to avoid exploding arrays of bytes; use lossy UTF-8 if needed
+        let s = String::from_utf8_lossy(&self.raw);
+        serializer.serialize_str(&s)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for HTTPBody {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(HTTPBody::new(s.into_bytes()))
     }
 }
 
@@ -389,6 +411,7 @@ pub struct HTTPRequest {
     #[serde(deserialize_with = "deserialize_headers")]
     headers: HashMap<String, String>,
     pub body: HTTPBody,
+    pub client_details: std::sync::Arc<ClientDetails>,
 }
 
 impl HTTPRequest {
@@ -398,6 +421,7 @@ impl HTTPRequest {
         method: String,
         headers: HashMap<String, String>,
         body: HTTPBody,
+        client_details: ClientDetails,
     ) -> Self {
         Self {
             id,
@@ -405,6 +429,7 @@ impl HTTPRequest {
             method,
             headers,
             body,
+            client_details: std::sync::Arc::new(client_details),
         }
     }
 
@@ -590,6 +615,7 @@ pub struct LLMUsage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
+    pub cached_input_tokens: Option<u64>,
 }
 
 #[cfg(test)]
@@ -614,6 +640,11 @@ mod tests {
             "POST".to_string(),
             headers.clone(),
             HTTPBody::new(b"test body".to_vec()),
+            ClientDetails {
+                name: "test-client".to_string(),
+                provider: "test-provider".to_string(),
+                options: IndexMap::new(),
+            },
         );
 
         // Test that .headers() returns original headers

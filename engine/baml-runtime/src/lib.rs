@@ -18,6 +18,7 @@ pub mod test_constraints;
 pub mod test_executor;
 
 pub mod async_vm_runtime;
+mod redaction;
 mod runtime_methods;
 pub mod tracing;
 pub mod tracingv2;
@@ -35,7 +36,7 @@ use anyhow::{Context, Result};
 use baml_ids::{FunctionCallId, HttpRequestId};
 use baml_types::{
     expr::{Expr, ExprMetadata},
-    tracing::events::{HTTPBody, HTTPRequest, TraceEvent},
+    tracing::events::{ClientDetails, HTTPBody, HTTPRequest, TraceEvent},
     BamlMap, BamlValue, BamlValueWithMeta, Completion, Constraint,
 };
 use cfg_if::cfg_if;
@@ -47,6 +48,10 @@ use eval_expr::{EvalEnv, ExprEvalResult};
 use futures::{
     channel::mpsc,
     future::{join, join_all},
+};
+use generators_lib::{
+    version_check::{self, GeneratorType, VersionCheckMode},
+    GenerateOutput, GeneratorArgs,
 };
 use indexmap::IndexMap;
 use internal::{
@@ -185,6 +190,43 @@ pub struct BamlRuntime {
     pub async_runtime: Arc<tokio::runtime::Runtime>,
 }
 
+pub struct TripWire {
+    trip_wire: Option<stream_cancel::Tripwire>,
+
+    on_drop: Option<Box<dyn Fn() + 'static + Send + Sync>>,
+}
+
+impl TripWire {
+    pub fn new(trip_wire: Option<stream_cancel::Tripwire>) -> Arc<Self> {
+        Arc::new(Self {
+            trip_wire,
+            on_drop: None,
+        })
+    }
+
+    pub fn new_with_on_drop(
+        trip_wire: Option<stream_cancel::Tripwire>,
+        on_drop: Box<dyn Fn() + 'static + Send + Sync>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            trip_wire,
+            on_drop: Some(on_drop),
+        })
+    }
+
+    fn trip_wire(&self) -> Option<stream_cancel::Tripwire> {
+        self.trip_wire.clone()
+    }
+}
+
+impl Drop for TripWire {
+    fn drop(&mut self) {
+        if let Some(on_drop) = self.on_drop.take() {
+            on_drop();
+        }
+    }
+}
+
 impl BamlRuntime {
     #[cfg(not(target_arch = "wasm32"))]
     fn get_tokio_singleton() -> Result<Arc<tokio::runtime::Runtime>> {
@@ -257,6 +299,7 @@ impl BamlRuntime {
     pub fn from_directory<T: AsRef<str>>(
         path: &std::path::Path,
         env_vars: HashMap<T, T>,
+        feature_flags: internal_baml_core::feature_flags::FeatureFlags,
     ) -> Result<Self> {
         // setup_crypto_provider();
         let path = Self::parse_baml_src_path(path)?;
@@ -267,13 +310,17 @@ impl BamlRuntime {
             .collect();
         baml_log::set_from_env(&copy)?;
 
-        Self::new_runtime(InternalBamlRuntime::from_directory(&path)?, &copy)
+        Self::new_runtime(
+            InternalBamlRuntime::from_directory(&path, feature_flags)?,
+            &copy,
+        )
     }
 
     pub fn from_file_content<T: AsRef<str> + std::fmt::Debug, U: AsRef<str>>(
         root_path: &str,
         files: &HashMap<T, T>,
         env_vars: HashMap<U, U>,
+        feature_flags: internal_baml_core::feature_flags::FeatureFlags,
     ) -> Result<Self> {
         // setup_crypto_provider();
         let copy = env_vars
@@ -283,7 +330,7 @@ impl BamlRuntime {
         baml_log::set_from_env(&copy)?;
 
         Self::new_runtime(
-            InternalBamlRuntime::from_file_content(root_path, files)?,
+            InternalBamlRuntime::from_file_content(root_path, files, feature_flags)?,
             &copy,
         )
     }
@@ -396,7 +443,7 @@ impl BamlRuntime {
             .get_test_params(function_name, test_name, ctx, strict)
     }
 
-    pub async fn run_test_with_expr_events<F>(
+    pub async fn run_test_with_expr_events<F, G>(
         &self,
         function_name: &str,
         test_name: &str,
@@ -405,9 +452,13 @@ impl BamlRuntime {
         expr_tx: Option<mpsc::UnboundedSender<Vec<internal_baml_diagnostics::SerializedSpan>>>,
         collector: Option<Arc<Collector>>,
         env_vars: HashMap<String, String>,
+        tags: Option<HashMap<String, String>>,
+        cancel_tripwire: Arc<TripWire>,
+        on_tick: Option<G>,
     ) -> (Result<TestResponse>, FunctionCallId)
     where
         F: Fn(FunctionResult),
+        G: Fn(),
     {
         baml_log::set_from_env(&env_vars).unwrap();
 
@@ -421,6 +472,7 @@ impl BamlRuntime {
                 true,
                 true, // tests always stream which is why there's an on_event
                 collector.as_ref().map(|c| vec![c.clone()]),
+                tags.as_ref(),
             );
 
         let expr_fn = self.inner.ir().find_expr_fn(function_name);
@@ -497,6 +549,7 @@ impl BamlRuntime {
                                     prompt_tokens: Some(50),
                                     output_tokens: Some(50),
                                     total_tokens: Some(100),
+                                    cached_input_tokens: None,
                                 },
                             }),
                             // TODO: Run checks and asserts.
@@ -525,6 +578,8 @@ impl BamlRuntime {
                 self.async_runtime.clone(),
                 // TODO: collectors here?
                 vec![],
+                None, // tags
+                cancel_tripwire,
             )?;
             let (response_res, call_uuid) = stream
                 .run(
@@ -549,12 +604,17 @@ impl BamlRuntime {
                 LLMResponse::Success(complete_llm_response) => Ok(complete_llm_response),
                 LLMResponse::InternalFailure(e) => Err(anyhow::anyhow!("{}", e)),
                 LLMResponse::UserFailure(e) => Err(anyhow::anyhow!("{}", e)),
-                LLMResponse::LLMFailure(e) => Err(anyhow::anyhow!(
-                    "{} {}\n\nRequest options: {}",
-                    e.code.to_string(),
-                    e.message,
-                    serde_json::to_string(&e.request_options).unwrap_or_default()
-                )),
+                LLMResponse::Cancelled(e) => Err(anyhow::anyhow!("Cancelled: {}", e)),
+                LLMResponse::LLMFailure(e) => Err(anyhow::anyhow!({
+                    let scrubbed_opts =
+                        crate::redaction::scrub_baml_options(&e.request_options, &env_vars, false);
+                    format!(
+                        "{} {}\n\nRequest options: {}",
+                        e.code,
+                        e.message,
+                        serde_json::to_string(&scrubbed_opts).unwrap_or_default()
+                    )
+                })),
             }?;
             let test_constraints_result = if constraints.is_empty() {
                 TestConstraintsResult::empty()
@@ -608,7 +668,7 @@ impl BamlRuntime {
         (response, call_id)
     }
 
-    pub async fn run_test<F>(
+    pub async fn run_test<F, G>(
         &self,
         function_name: &str,
         test_name: &str,
@@ -616,12 +676,16 @@ impl BamlRuntime {
         on_event: Option<F>,
         collector: Option<Arc<Collector>>,
         env_vars: HashMap<String, String>,
+        tags: Option<HashMap<String, String>>,
+        cancel_tripwire: Arc<TripWire>,
+        on_tick: Option<G>,
     ) -> (Result<TestResponse>, FunctionCallId)
     where
         F: Fn(FunctionResult),
+        G: Fn(),
     {
         let res = self
-            .run_test_with_expr_events::<F>(
+            .run_test_with_expr_events::<F, G>(
                 function_name,
                 test_name,
                 ctx,
@@ -629,6 +693,9 @@ impl BamlRuntime {
                 None,
                 collector,
                 env_vars,
+                tags,
+                cancel_tripwire,
+                on_tick,
             )
             .await;
         res
@@ -644,8 +711,20 @@ impl BamlRuntime {
         cb: Option<&ClientRegistry>,
         collectors: Option<Vec<Arc<Collector>>>,
         env_vars: HashMap<String, String>,
+        tags: Option<HashMap<String, String>>,
+        cancel_tripwire: Arc<TripWire>,
     ) -> (Result<FunctionResult>, FunctionCallId) {
-        let fut = self.call_function(function_name, params, ctx, tb, cb, collectors, env_vars);
+        let fut = self.call_function(
+            function_name,
+            params,
+            ctx,
+            tb,
+            cb,
+            collectors,
+            tags,
+            env_vars,
+            cancel_tripwire,
+        );
         self.async_runtime.block_on(fut)
     }
 
@@ -657,7 +736,9 @@ impl BamlRuntime {
         tb: Option<&TypeBuilder>,
         cb: Option<&ClientRegistry>,
         collectors: Option<Vec<Arc<Collector>>>,
+        tags: Option<HashMap<String, String>>,
         env_vars: HashMap<String, String>,
+        cancel_tripwire: Arc<TripWire>,
     ) -> (Result<FunctionResult>, FunctionCallId) {
         let res = Box::pin(self.call_function_with_expr_events(
             function_name,
@@ -668,6 +749,8 @@ impl BamlRuntime {
             collectors,
             env_vars,
             None,
+            cancel_tripwire,
+            tags,
         ))
         .await;
         res
@@ -689,6 +772,7 @@ impl BamlRuntime {
                 prompt_tokens: Some(50),
                 output_tokens: Some(50),
                 total_tokens: Some(100),
+                cached_input_tokens: None,
             },
         })
     }
@@ -703,6 +787,8 @@ impl BamlRuntime {
         collectors: Option<Vec<Arc<Collector>>>,
         env_vars: HashMap<String, String>,
         expr_tx: Option<mpsc::UnboundedSender<Vec<internal_baml_diagnostics::SerializedSpan>>>,
+        cancel_tripwire: Arc<TripWire>,
+        tags: Option<HashMap<String, String>>,
     ) -> (Result<FunctionResult>, FunctionCallId) {
         // baml_log::info!("env vars: {:#?}", env_vars.clone());
         baml_log::set_from_env(&env_vars).unwrap();
@@ -713,7 +799,15 @@ impl BamlRuntime {
         let call = self
             .tracer_wrapper
             .get_or_create_tracer(&env_vars)
-            .start_call(&function_name, ctx, params, true, false, collectors);
+            .start_call(
+                &function_name,
+                ctx,
+                params,
+                true,
+                false,
+                collectors,
+                tags.as_ref(),
+            );
         let curr_call_id = call.curr_call_id();
 
         let fake_syntax_span = Span::fake();
@@ -744,8 +838,10 @@ impl BamlRuntime {
                             };
 
                         // Call (CANNOT RETURN HERE until trace event is finished)
-                        let result = self.inner.call_function_impl(prepared_func, rctx).await;
-                        // eprintln!("result: {:?}", result);
+                        let result = self
+                            .inner
+                            .call_function_impl(prepared_func, rctx, cancel_tripwire)
+                            .await;
                         // Trace event
                         let trace_event = TraceEvent::new_function_end(
                             call_id_stack.clone(),
@@ -754,13 +850,7 @@ impl BamlRuntime {
                                     Ok(value) => Ok(value
                                         .0
                                         .map_meta(|f| f.3.to_non_streaming_type(self.inner.ir()))),
-                                    Err(e) => Err((&e).to_baml_error()), // None => Err(baml_types::tracing::errors::BamlError::Base {
-                                                                         //     message: format!(
-                                                                         //         "No parsed result found for function: {}",
-                                                                         //         function_name
-                                                                         //     )
-                                                                         //     .into(),
-                                                                         // }),
+                                    Err(e) => Err((&e).to_baml_error()),
                                 },
                                 Err(e) => Err(e.to_baml_error()),
                             },
@@ -912,7 +1002,9 @@ impl BamlRuntime {
         cb: Option<&ClientRegistry>,
         collectors: Option<Vec<Arc<Collector>>>,
         env_vars: HashMap<String, String>,
+        tags: Option<HashMap<String, String>>,
         expr_tx: Option<mpsc::UnboundedSender<Vec<SerializedSpan>>>,
+        cancel_tripwire: Arc<TripWire>,
     ) -> Result<FunctionResultStream> {
         baml_log::set_from_env(&env_vars).unwrap();
         self.inner.stream_function_impl(
@@ -923,6 +1015,8 @@ impl BamlRuntime {
             #[cfg(not(target_arch = "wasm32"))]
             self.async_runtime.clone(),
             collectors.unwrap_or_default(),
+            tags,
+            cancel_tripwire,
         )
     }
 
@@ -935,6 +1029,8 @@ impl BamlRuntime {
         cb: Option<&ClientRegistry>,
         collectors: Option<Vec<Arc<Collector>>>,
         env_vars: HashMap<String, String>,
+        tags: Option<HashMap<String, String>>,
+        cancel_tripwire: Arc<TripWire>,
     ) -> Result<FunctionResultStream> {
         self.stream_function_with_expr_events(
             function_name,
@@ -944,7 +1040,9 @@ impl BamlRuntime {
             cb,
             collectors,
             env_vars,
+            tags,
             None,
+            cancel_tripwire,
         )
     }
 
@@ -968,6 +1066,20 @@ impl BamlRuntime {
             .await
             .map(|(prompt, ..)| prompt)?;
 
+        let mut request_id = HttpRequestId::new();
+
+        if let RenderedPrompt::Chat(chat) = &prompt {
+            if let LLMProvider::Primitive(primitive) = provider.as_ref() {
+                if let internal::llm_client::primitive::LLMPrimitiveProvider::Aws(aws_client) =
+                    primitive.as_ref()
+                {
+                    return aws_client
+                        .build_modular_http_request(&ctx, chat, stream, request_id)
+                        .await;
+                }
+            }
+        }
+
         let request = match prompt {
             RenderedPrompt::Chat(chat) => provider
                 .build_request(either::Either::Right(&chat), true, stream, &ctx, self)
@@ -988,7 +1100,7 @@ impl BamlRuntime {
         // Would also be nice if RequestBuilder had getters so we didn't have to
         // call .build()? above.
         Ok(HTTPRequest::new(
-            HttpRequestId::new(),
+            std::mem::take(&mut request_id),
             request.url().to_string(),
             request.method().to_string(),
             json_headers(request.headers()),
@@ -999,6 +1111,11 @@ impl BamlRuntime {
                     .unwrap_or_default()
                     .into(),
             ),
+            ClientDetails {
+                name: "unknown".to_string(),
+                provider: "unknown".to_string(),
+                options: IndexMap::new(),
+            },
         ))
     }
 
@@ -1054,10 +1171,24 @@ impl BamlRuntime {
     fn generate_client(
         &self,
         client_type: &GeneratorOutputType,
-        args: &generators_lib::GeneratorArgs,
-    ) -> Result<internal_baml_codegen::GenerateOutput> {
+        args: &GeneratorArgs,
+        generator_type: GeneratorType,
+    ) -> Result<GenerateOutput> {
+        if !args.no_version_check {
+            if let Some(error) = version_check::check_version(
+                &args.version,
+                env!("CARGO_PKG_VERSION"),
+                generator_type,
+                VersionCheckMode::Strict,
+                *client_type,
+                false,
+            ) {
+                return Err(anyhow::anyhow!(error.msg()));
+            }
+        }
+
         let files = generators_lib::generate_sdk(self.inner.ir.clone(), args)?;
-        Ok(internal_baml_codegen::GenerateOutput {
+        Ok(GenerateOutput {
             client_type: *client_type,
             output_dir_shorthand: args.output_dir().to_path_buf(),
             output_dir_full: args.output_dir().to_path_buf(),
@@ -1124,15 +1255,14 @@ impl BamlRuntime {
         &self,
         input_files: &IndexMap<PathBuf, String>,
         no_version_check: bool,
-    ) -> Result<Vec<internal_baml_codegen::GenerateOutput>> {
-        use internal_baml_codegen::GenerateClient;
-
-        let client_types: Vec<(&CodegenGenerator, internal_baml_codegen::GeneratorArgs)> = self
+        generator_type: GeneratorType,
+    ) -> Result<Vec<GenerateOutput>> {
+        let client_types: Vec<(&CodegenGenerator, GeneratorArgs)> = self
             .codegen_generators()
             .map(|generator| {
                 Ok((
                     generator,
-                    internal_baml_codegen::GeneratorArgs::new(
+                    GeneratorArgs::new(
                         generator.output_dir(),
                         generator.baml_src.clone(),
                         input_files.iter(),
@@ -1172,8 +1302,21 @@ impl BamlRuntime {
         client_types
             .iter()
             .map(|(generator, args)| {
+                if !args.no_version_check {
+                    if let Some(error) = version_check::check_version(
+                        &args.version,
+                        env!("CARGO_PKG_VERSION"),
+                        generator_type,
+                        VersionCheckMode::Strict,
+                        generator.output_type,
+                        false,
+                    ) {
+                        return Err(anyhow::anyhow!(error.msg()));
+                    }
+                }
+
                 let files = generators_lib::generate_sdk(self.inner.ir.clone(), args)?;
-                Ok(internal_baml_codegen::GenerateOutput {
+                Ok(GenerateOutput {
                     client_type: generator.output_type,
                     output_dir_shorthand: generator.output_dir(),
                     output_dir_full: generator.output_dir(),
@@ -1209,7 +1352,7 @@ impl ExperimentalTracingInterface for BamlRuntime {
     ) -> TracingCall {
         self.tracer_wrapper
             .get_or_create_tracer(env_vars)
-            .start_call(function_name, ctx, params, false, false, None)
+            .start_call(function_name, ctx, params, false, false, None, None)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1273,6 +1416,7 @@ impl ExperimentalTracingInterface for BamlRuntime {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Err(e) = self.async_runtime.block_on(flush()) {
+                log::error!("Failed to flush: {}", e);
                 baml_log::debug!("Failed to flush: {}", e);
             }
         }
@@ -1384,7 +1528,7 @@ async fn expr_eval_result(
         Ok(expr_fn) => {
             log::trace!("Calling function: {function_name}");
             let collectors = collector.as_ref().map(|c| vec![c.clone()]);
-            let call = tracer.start_call(function_name, mgr, params, true, false, collectors);
+            let call = tracer.start_call(function_name, mgr, params, true, false, collectors, None);
 
             let ctx = mgr.create_ctx(tb, cb, env_vars.clone(), call.new_call_id_stack.clone())?;
             let env = EvalEnv {

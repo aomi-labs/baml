@@ -62,6 +62,19 @@ impl {{ name }} {
     }
     {%- endif %}
     {%- endfor %}
+
+    {%- if all_variants_are_string_literals %}
+    /// Return the literal string value represented by this union.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            {%- for variant in variants %}
+            {%- if let Some(literal) = variant.literal_value %}
+            Self::{{ variant.name }} => {{ literal | json_string_literal }},
+            {%- endif %}
+            {%- endfor %}
+        }
+    }
+    {%- endif %}
 }
 
 /// Pattern matching helper for {{ name }}
@@ -126,27 +139,45 @@ impl std::fmt::Display for {{ name }} {
     }
 }
 
+impl Default for {{ name }} {
+    fn default() -> Self {
+        {%- if variants.len() > 0 %}
+            {%- for variant in variants %}
+                {%- if loop.first %}
+                    {%- if let Some(literal) = variant.literal_value %}
+                        Self::{{ variant.name }}
+                    {%- else %}
+                        Self::{{ variant.name }}({{ variant.rust_type.serialize_type(pkg) }}::default())
+                    {%- endif %}
+                {%- endif %}
+            {%- endfor %}
+        {%- else %}
+            panic!("Cannot create default value for empty union {{ name }}")
+        {%- endif %}
+    }
+}
+
 // BAML trait implementations
 impl baml_client_rust::types::ToBamlValue for {{ name }} {
     fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
         match self {
             {%- for variant in variants %}
-            {%- if let Some(literal) = variant.literal_value %}
+            {%- if let Some(kind) = variant.literal_kind %}
             Self::{{ variant.name }} => {
-                // Handle literal variant - convert literal value to BamlValue
-                {%- if literal.starts_with('"') %}
-                {%- if literal.ends_with('"') %}
-                Ok(baml_client_rust::types::BamlValue::String({{ literal }}.to_string()))
+                {%- if kind.is_string() %}
+                Ok(baml_client_rust::types::BamlValue::String(
+                    {{ variant.literal_value.as_ref().unwrap() | json_string_literal }}.to_string(),
+                ))
+                {%- elif kind.is_int() %}
+                Ok(baml_client_rust::types::BamlValue::Int(
+                    {{ variant.literal_value.as_ref().unwrap() }},
+                ))
+                {%- elif kind.is_bool() %}
+                Ok(baml_client_rust::types::BamlValue::Bool(
+                    {{ variant.literal_value.as_ref().unwrap() }},
+                ))
                 {%- else %}
-                Ok(baml_client_rust::types::BamlValue::String("{{ literal }}".to_string()))
-                {%- endif %}
-                {%- elif literal == "true" %}
-                Ok(baml_client_rust::types::BamlValue::Bool(true))
-                {%- elif literal == "false" %}
-                Ok(baml_client_rust::types::BamlValue::Bool(false))
-                {%- else %}
-                // Try to parse as number, fallback to string
-                Ok(baml_client_rust::types::BamlValue::String("{{ literal }}".to_string()))
+                unreachable!()
                 {%- endif %}
             }
             {%- else %}
@@ -159,40 +190,85 @@ impl baml_client_rust::types::ToBamlValue for {{ name }} {
 
 impl baml_client_rust::types::FromBamlValue for {{ name }} {
     fn from_baml_value(value: baml_client_rust::types::BamlValue) -> baml_client_rust::BamlResult<Self> {
+        {% if has_discriminators %}
+        if let baml_client_rust::types::BamlValue::Class(_, map)
+            | baml_client_rust::types::BamlValue::Map(map) = &value
+        {
+            {%- for variant in variants %}
+            {%- if variant.literal_value.is_none() && !variant.discriminators.is_empty() %}
+            {
+                let mut matches_variant = true;
+                {%- for discriminator in variant.discriminators %}
+                if matches_variant {
+                    matches_variant = match map.get("{{ discriminator.field_name }}") {
+                        {%- if discriminator.value.is_string() %}
+                        Some(baml_client_rust::types::BamlValue::String(value)) => {
+                            value == {{ discriminator.value.expect_string() | json_string_literal }}
+                        }
+                        {%- elif discriminator.value.is_int() %}
+                        Some(baml_client_rust::types::BamlValue::Int(value)) => {
+                            value == &{{ discriminator.value.expect_int() }}
+                        }
+                        {%- elif discriminator.value.is_bool() %}
+                        Some(baml_client_rust::types::BamlValue::Bool(value)) => {
+                            value == &{{ discriminator.value.expect_bool() }}
+                        }
+                        {%- else %}
+                        Some(_) => false,
+                        {%- endif %}
+                        _ => false,
+                    };
+                }
+                {%- endfor %}
+                if matches_variant {
+                    if let Ok(variant_value) = {{ variant.rust_type.serialize_type_with_turbofish(pkg) }}::from_baml_value(value.clone()) {
+                        return Ok(Self::{{ variant.name }}(variant_value));
+                    }
+                }
+            }
+            {%- endif %}
+            {%- endfor %}
+        }
+        {% endif %}
+
         {%- for variant in variants %}
-        {%- if let Some(literal) = variant.literal_value %}
-        // Try literal variant: {{ variant.name }}
-        {%- if literal.starts_with('"') %}
-        {%- if literal.ends_with('"') %}
+        {%- if let Some(kind) = variant.literal_kind %}
+        {%- if kind.is_string() %}
         if let baml_client_rust::types::BamlValue::String(s) = &value {
-            if s == {{ literal }} {
+            if s == {{ variant.literal_value.as_ref().unwrap() | json_string_literal }} {
                 return Ok(Self::{{ variant.name }});
             }
         }
-        {%- endif %}
-        {%- elif literal == "true" %}
-        if let baml_client_rust::types::BamlValue::Bool(b) = &value {
-            if *b == true {
+        {%- elif kind.is_int() %}
+        if let baml_client_rust::types::BamlValue::Int(i) = &value {
+            if *i == {{ variant.literal_value.as_ref().unwrap() }} {
                 return Ok(Self::{{ variant.name }});
             }
         }
-        {%- elif literal == "false" %}
+        if let baml_client_rust::types::BamlValue::String(s) = &value {
+            if let Ok(parsed) = s.parse::<i64>() {
+                if parsed == {{ variant.literal_value.as_ref().unwrap() }} {
+                    return Ok(Self::{{ variant.name }});
+                }
+            }
+        }
+        {%- elif kind.is_bool() %}
         if let baml_client_rust::types::BamlValue::Bool(b) = &value {
-            if *b == false {
+            if *b == {{ variant.literal_value.as_ref().unwrap() }} {
+                return Ok(Self::{{ variant.name }});
+            }
+        }
+        if let baml_client_rust::types::BamlValue::String(s) = &value {
+            if s.eq_ignore_ascii_case({{ variant.literal_value.as_ref().unwrap() | json_string_literal }}) {
                 return Ok(Self::{{ variant.name }});
             }
         }
         {%- else %}
-        // Try matching literal as string fallback
-        if let baml_client_rust::types::BamlValue::String(s) = &value {
-            if s == "{{ literal }}" {
-                return Ok(Self::{{ variant.name }});
-            }
-        }
+        unreachable!();
         {%- endif %}
         {%- else %}
         // Try {{ variant.name }} variant
-        if let Ok(variant_value) = {{ variant.rust_type.serialize_type(pkg) }}::from_baml_value(value.clone()) {
+        if let Ok(variant_value) = {{ variant.rust_type.serialize_type_with_turbofish(pkg) }}::from_baml_value(value.clone()) {
             return Ok(Self::{{ variant.name }}(variant_value));
         }
         {%- endif %}

@@ -11,7 +11,7 @@
 // You can install baml-cli with:
 //  $ cargo install baml-cli
 
-use crate::types::*;
+use crate::{source_map, types::*};
 use baml_client_rust::{BamlClient as CoreBamlClient, BamlClientBuilder, BamlContext, BamlResult};
 use futures::Stream;
 
@@ -24,7 +24,57 @@ pub struct BamlClient {
 impl BamlClient {
     /// Create a new BAML client with default configuration
     pub fn new() -> BamlResult<Self> {
-        let client = CoreBamlClient::from_env()?;
+        let mut env_vars: std::collections::HashMap<String, String> = std::env::vars().collect();
+        env_vars
+            .entry("BAML_SRC".to_string())
+            .or_insert_with(|| "./baml_src".to_string());
+
+        // Prefer local baml_src during generated tests
+        let mut last_error: Option<baml_client_rust::BamlError> = None;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let local = std::path::Path::new("baml_src");
+            if local.exists() {
+                match CoreBamlClient::from_directory(local, env_vars.clone()) {
+                    Ok(client) => return Ok(Self { client }),
+                    Err(err) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("BamlClient::from_directory failed: {err}");
+                        last_error = Some(err);
+                    }
+                }
+            }
+        }
+
+        // Fall back to embedded source map
+        let embedded_files: std::collections::HashMap<String, String> =
+            source_map::baml_source_files()
+                .into_iter()
+                .map(|(path, contents)| (path.to_string(), contents.to_string()))
+                .collect();
+        if !embedded_files.is_empty() {
+            match CoreBamlClient::from_file_content("./baml_src", &embedded_files, env_vars.clone())
+            {
+                Ok(client) => return Ok(Self { client }),
+                Err(err) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("BamlClient::from_file_content failed: {err}");
+                    last_error = Some(err);
+                }
+            }
+        }
+
+        let client = match CoreBamlClient::from_env() {
+            Ok(client) => client,
+            Err(err) => {
+                #[cfg(debug_assertions)]
+                if let Some(prev) = &last_error {
+                    eprintln!("BamlClient::from_env failed after embedded attempts: {prev}");
+                }
+                return Err(err);
+            }
+        };
         Ok(Self { client })
     }
 
@@ -58,9 +108,15 @@ impl Default for BamlClient {
 }
 impl BamlClient {
     /// TestKitchenSink - Generated BAML function
-    pub async fn test_kitchen_sink(&self, input: String) -> BamlResult<crate::types::KitchenSink> {
+    pub async fn test_kitchen_sink(
+        &self,
+        input: impl Into<String>,
+    ) -> BamlResult<crate::types::KitchenSink> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client.call_function("TestKitchenSink", context).await
     }
@@ -68,7 +124,7 @@ impl BamlClient {
     /// TestKitchenSink (streaming) - Generated BAML function  
     pub async fn test_kitchen_sink_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<baml_client_rust::StreamState<crate::types::KitchenSink>>,
@@ -76,7 +132,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestKitchenSink", context)
@@ -85,9 +144,15 @@ impl BamlClient {
 }
 impl BamlClient {
     /// TestRecursiveComplexity - Generated BAML function
-    pub async fn test_recursive_complexity(&self, input: String) -> BamlResult<crate::types::Node> {
+    pub async fn test_recursive_complexity(
+        &self,
+        input: impl Into<String>,
+    ) -> BamlResult<crate::types::Node> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function("TestRecursiveComplexity", context)
@@ -97,14 +162,17 @@ impl BamlClient {
     /// TestRecursiveComplexity (streaming) - Generated BAML function  
     pub async fn test_recursive_complexity_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<Item = BamlResult<baml_client_rust::StreamState<crate::types::Node>>>
             + Send
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestRecursiveComplexity", context)
@@ -115,10 +183,13 @@ impl BamlClient {
     /// TestUltraComplex - Generated BAML function
     pub async fn test_ultra_complex(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<crate::types::UltraComplex> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client.call_function("TestUltraComplex", context).await
     }
@@ -126,7 +197,7 @@ impl BamlClient {
     /// TestUltraComplex (streaming) - Generated BAML function  
     pub async fn test_ultra_complex_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<baml_client_rust::StreamState<crate::types::UltraComplex>>,
@@ -134,7 +205,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestUltraComplex", context)

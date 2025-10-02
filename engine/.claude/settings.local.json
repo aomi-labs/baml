@@ -13,7 +13,8 @@
       "Bash(/Users/ceciliazhang/Code/baml/engine/target/release/baml-cli generate --from baml_src)",
       "Bash(for dir in */)",
       "Bash(do mkdir -p \"$dirrust\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(RUN_GENERATOR_TESTS=1 cargo test --package generators-rust --lib -- array_types_evaluate)"
     ],
     "deny": [],
     "additionalDirectories": [

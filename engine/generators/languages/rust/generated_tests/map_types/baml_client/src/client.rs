@@ -11,7 +11,7 @@
 // You can install baml-cli with:
 //  $ cargo install baml-cli
 
-use crate::types::*;
+use crate::{source_map, types::*};
 use baml_client_rust::{BamlClient as CoreBamlClient, BamlClientBuilder, BamlContext, BamlResult};
 use futures::Stream;
 
@@ -24,7 +24,57 @@ pub struct BamlClient {
 impl BamlClient {
     /// Create a new BAML client with default configuration
     pub fn new() -> BamlResult<Self> {
-        let client = CoreBamlClient::from_env()?;
+        let mut env_vars: std::collections::HashMap<String, String> = std::env::vars().collect();
+        env_vars
+            .entry("BAML_SRC".to_string())
+            .or_insert_with(|| "./baml_src".to_string());
+
+        // Prefer local baml_src during generated tests
+        let mut last_error: Option<baml_client_rust::BamlError> = None;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let local = std::path::Path::new("baml_src");
+            if local.exists() {
+                match CoreBamlClient::from_directory(local, env_vars.clone()) {
+                    Ok(client) => return Ok(Self { client }),
+                    Err(err) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("BamlClient::from_directory failed: {err}");
+                        last_error = Some(err);
+                    }
+                }
+            }
+        }
+
+        // Fall back to embedded source map
+        let embedded_files: std::collections::HashMap<String, String> =
+            source_map::baml_source_files()
+                .into_iter()
+                .map(|(path, contents)| (path.to_string(), contents.to_string()))
+                .collect();
+        if !embedded_files.is_empty() {
+            match CoreBamlClient::from_file_content("./baml_src", &embedded_files, env_vars.clone())
+            {
+                Ok(client) => return Ok(Self { client }),
+                Err(err) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("BamlClient::from_file_content failed: {err}");
+                    last_error = Some(err);
+                }
+            }
+        }
+
+        let client = match CoreBamlClient::from_env() {
+            Ok(client) => client,
+            Err(err) => {
+                #[cfg(debug_assertions)]
+                if let Some(prev) = &last_error {
+                    eprintln!("BamlClient::from_env failed after embedded attempts: {prev}");
+                }
+                return Err(err);
+            }
+        };
         Ok(Self { client })
     }
 
@@ -58,9 +108,15 @@ impl Default for BamlClient {
 }
 impl BamlClient {
     /// TestComplexMaps - Generated BAML function
-    pub async fn test_complex_maps(&self, input: String) -> BamlResult<crate::types::ComplexMaps> {
+    pub async fn test_complex_maps(
+        &self,
+        input: impl Into<String>,
+    ) -> BamlResult<crate::types::ComplexMaps> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client.call_function("TestComplexMaps", context).await
     }
@@ -68,7 +124,7 @@ impl BamlClient {
     /// TestComplexMaps (streaming) - Generated BAML function  
     pub async fn test_complex_maps_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<baml_client_rust::StreamState<crate::types::ComplexMaps>>,
@@ -76,7 +132,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestComplexMaps", context)
@@ -87,10 +146,13 @@ impl BamlClient {
     /// TestEdgeCaseMaps - Generated BAML function
     pub async fn test_edge_case_maps(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<crate::types::EdgeCaseMaps> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client.call_function("TestEdgeCaseMaps", context).await
     }
@@ -98,7 +160,7 @@ impl BamlClient {
     /// TestEdgeCaseMaps (streaming) - Generated BAML function  
     pub async fn test_edge_case_maps_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<baml_client_rust::StreamState<crate::types::EdgeCaseMaps>>,
@@ -106,7 +168,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestEdgeCaseMaps", context)
@@ -115,9 +180,15 @@ impl BamlClient {
 }
 impl BamlClient {
     /// TestLargeMaps - Generated BAML function
-    pub async fn test_large_maps(&self, input: String) -> BamlResult<crate::types::SimpleMaps> {
+    pub async fn test_large_maps(
+        &self,
+        input: impl Into<String>,
+    ) -> BamlResult<crate::types::SimpleMaps> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client.call_function("TestLargeMaps", context).await
     }
@@ -125,7 +196,7 @@ impl BamlClient {
     /// TestLargeMaps (streaming) - Generated BAML function  
     pub async fn test_large_maps_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<baml_client_rust::StreamState<crate::types::SimpleMaps>>,
@@ -133,7 +204,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestLargeMaps", context)
@@ -142,9 +216,15 @@ impl BamlClient {
 }
 impl BamlClient {
     /// TestNestedMaps - Generated BAML function
-    pub async fn test_nested_maps(&self, input: String) -> BamlResult<crate::types::NestedMaps> {
+    pub async fn test_nested_maps(
+        &self,
+        input: impl Into<String>,
+    ) -> BamlResult<crate::types::NestedMaps> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client.call_function("TestNestedMaps", context).await
     }
@@ -152,7 +232,7 @@ impl BamlClient {
     /// TestNestedMaps (streaming) - Generated BAML function  
     pub async fn test_nested_maps_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<baml_client_rust::StreamState<crate::types::NestedMaps>>,
@@ -160,7 +240,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestNestedMaps", context)
@@ -169,9 +252,15 @@ impl BamlClient {
 }
 impl BamlClient {
     /// TestSimpleMaps - Generated BAML function
-    pub async fn test_simple_maps(&self, input: String) -> BamlResult<crate::types::SimpleMaps> {
+    pub async fn test_simple_maps(
+        &self,
+        input: impl Into<String>,
+    ) -> BamlResult<crate::types::SimpleMaps> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client.call_function("TestSimpleMaps", context).await
     }
@@ -179,7 +268,7 @@ impl BamlClient {
     /// TestSimpleMaps (streaming) - Generated BAML function  
     pub async fn test_simple_maps_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<baml_client_rust::StreamState<crate::types::SimpleMaps>>,
@@ -187,7 +276,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestSimpleMaps", context)
@@ -198,10 +290,13 @@ impl BamlClient {
     /// TestTopLevelBoolMap - Generated BAML function
     pub async fn test_top_level_bool_map(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<std::collections::HashMap<String, bool>> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function("TestTopLevelBoolMap", context)
@@ -211,7 +306,7 @@ impl BamlClient {
     /// TestTopLevelBoolMap (streaming) - Generated BAML function  
     pub async fn test_top_level_bool_map_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<
@@ -221,7 +316,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestTopLevelBoolMap", context)
@@ -232,10 +330,13 @@ impl BamlClient {
     /// TestTopLevelEmptyMap - Generated BAML function
     pub async fn test_top_level_empty_map(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<std::collections::HashMap<String, String>> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function("TestTopLevelEmptyMap", context)
@@ -245,7 +346,7 @@ impl BamlClient {
     /// TestTopLevelEmptyMap (streaming) - Generated BAML function  
     pub async fn test_top_level_empty_map_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<
@@ -255,7 +356,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestTopLevelEmptyMap", context)
@@ -266,10 +370,13 @@ impl BamlClient {
     /// TestTopLevelFloatMap - Generated BAML function
     pub async fn test_top_level_float_map(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<std::collections::HashMap<String, f64>> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function("TestTopLevelFloatMap", context)
@@ -279,7 +386,7 @@ impl BamlClient {
     /// TestTopLevelFloatMap (streaming) - Generated BAML function  
     pub async fn test_top_level_float_map_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<
@@ -289,7 +396,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestTopLevelFloatMap", context)
@@ -300,10 +410,13 @@ impl BamlClient {
     /// TestTopLevelIntMap - Generated BAML function
     pub async fn test_top_level_int_map(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<std::collections::HashMap<String, i64>> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function("TestTopLevelIntMap", context)
@@ -313,7 +426,7 @@ impl BamlClient {
     /// TestTopLevelIntMap (streaming) - Generated BAML function  
     pub async fn test_top_level_int_map_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<
@@ -323,7 +436,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestTopLevelIntMap", context)
@@ -334,10 +450,13 @@ impl BamlClient {
     /// TestTopLevelMapOfArrays - Generated BAML function
     pub async fn test_top_level_map_of_arrays(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<std::collections::HashMap<String, Vec<i64>>> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function("TestTopLevelMapOfArrays", context)
@@ -347,7 +466,7 @@ impl BamlClient {
     /// TestTopLevelMapOfArrays (streaming) - Generated BAML function  
     pub async fn test_top_level_map_of_arrays_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<
@@ -357,7 +476,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestTopLevelMapOfArrays", context)
@@ -368,10 +490,13 @@ impl BamlClient {
     /// TestTopLevelMapOfObjects - Generated BAML function
     pub async fn test_top_level_map_of_objects(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<std::collections::HashMap<String, crate::types::User>> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function("TestTopLevelMapOfObjects", context)
@@ -381,7 +506,7 @@ impl BamlClient {
     /// TestTopLevelMapOfObjects (streaming) - Generated BAML function  
     pub async fn test_top_level_map_of_objects_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<
@@ -393,7 +518,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestTopLevelMapOfObjects", context)
@@ -404,10 +532,13 @@ impl BamlClient {
     /// TestTopLevelMapWithNullable - Generated BAML function
     pub async fn test_top_level_map_with_nullable(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<std::collections::HashMap<String, Option<String>>> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function("TestTopLevelMapWithNullable", context)
@@ -417,7 +548,7 @@ impl BamlClient {
     /// TestTopLevelMapWithNullable (streaming) - Generated BAML function  
     pub async fn test_top_level_map_with_nullable_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<
@@ -429,7 +560,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestTopLevelMapWithNullable", context)
@@ -440,11 +574,14 @@ impl BamlClient {
     /// TestTopLevelNestedMap - Generated BAML function
     pub async fn test_top_level_nested_map(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<std::collections::HashMap<String, std::collections::HashMap<String, String>>>
     {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function("TestTopLevelNestedMap", context)
@@ -454,7 +591,7 @@ impl BamlClient {
     /// TestTopLevelNestedMap (streaming) - Generated BAML function  
     pub async fn test_top_level_nested_map_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<
@@ -469,7 +606,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestTopLevelNestedMap", context)
@@ -480,10 +620,13 @@ impl BamlClient {
     /// TestTopLevelStringMap - Generated BAML function
     pub async fn test_top_level_string_map(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<std::collections::HashMap<String, String>> {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function("TestTopLevelStringMap", context)
@@ -493,7 +636,7 @@ impl BamlClient {
     /// TestTopLevelStringMap (streaming) - Generated BAML function  
     pub async fn test_top_level_string_map_stream(
         &self,
-        input: String,
+        input: impl Into<String>,
     ) -> BamlResult<
         impl futures::Stream<
                 Item = BamlResult<
@@ -503,7 +646,10 @@ impl BamlClient {
             + Sync,
     > {
         let mut context = BamlContext::new();
-        context = context.set_arg("input", input)?;
+        context = context.set_arg("input", input.into())?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client
             .call_function_stream("TestTopLevelStringMap", context)

@@ -7,13 +7,24 @@ impl BamlClient {
     pub async fn {{ name|snake_case }}(
         &self,
         {%- for (arg_name, arg_type) in args %}
+        {%- if arg_type.is_string_primitive() -%}
+        {{ arg_name }}: impl Into<String>,
+        {%- else -%}
         {{ arg_name }}: {{ arg_type.serialize_type(pkg) }},
+        {%- endif -%}
         {%- endfor %}
     ) -> BamlResult<{{ return_type.serialize_type(pkg) }}> {
         let mut context = BamlContext::new();
         {%- for (arg_name, arg_type) in args %}
+        {%- if arg_type.is_string_primitive() -%}
+        context = context.set_arg("{{ arg_name }}", {{ arg_name }}.into())?;
+        {%- else -%}
         context = context.set_arg("{{ arg_name }}", {{ arg_name }})?;
+        {%- endif -%}
         {%- endfor %}
+        
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
         
         self.client.call_function("{{ name }}", context).await
     }
@@ -26,13 +37,24 @@ impl BamlClient {
     pub async fn {{ name|snake_case }}_stream(
         &self,
         {%- for (arg_name, arg_type) in args %}
+        {%- if arg_type.is_string_primitive() -%}
+        {{ arg_name }}: impl Into<String>,
+        {%- else -%}
         {{ arg_name }}: {{ arg_type.serialize_type(pkg) }},
+        {%- endif -%}
         {%- endfor %}
     ) -> BamlResult<impl futures::Stream<Item = BamlResult<baml_client_rust::StreamState<{{ stream_return_type.serialize_type(pkg) }}>>> + Send + Sync> {
         let mut context = BamlContext::new();
         {%- for (arg_name, arg_type) in args %}
+        {%- if arg_type.is_string_primitive() -%}
+        context = context.set_arg("{{ arg_name }}", {{ arg_name }}.into())?;
+        {%- else -%}
         context = context.set_arg("{{ arg_name }}", {{ arg_name }})?;
+        {%- endif -%}
         {%- endfor %}
+        
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
         
         self.client.call_function_stream("{{ name }}", context).await
     }

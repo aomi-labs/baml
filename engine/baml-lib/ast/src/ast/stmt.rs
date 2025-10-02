@@ -1,25 +1,81 @@
 use std::fmt;
 
-use super::{Expression, ExpressionBlock, Identifier, Span};
+use super::{Expression, ExpressionBlock, FieldType, Identifier, Span};
 
 #[derive(Debug, Clone)]
 pub struct LetStmt {
     pub identifier: Identifier,
+    /// Always true after mut keyword removal
     pub is_mutable: bool,
+    pub annotation: Option<FieldType>,
     pub expr: Expression,
+    pub span: Span,
+    pub annotations: Vec<std::sync::Arc<Header>>,
+    pub emit: Option<EmitDecorator>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EmitDecorator {
+    pub arguments: Vec<EmitArgument>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone)]
+pub struct EmitArgument {
+    pub name: Identifier,
+    pub value: Expression,
+    pub span: Span,
+}
+
+impl EmitDecorator {
+    pub fn assert_eq_up_to_span(&self, other: &EmitDecorator) {
+        assert_eq!(self.arguments.len(), other.arguments.len());
+        for (left, right) in self.arguments.iter().zip(&other.arguments) {
+            left.assert_eq_up_to_span(right);
+        }
+    }
+}
+
+impl EmitArgument {
+    pub fn assert_eq_up_to_span(&self, other: &EmitArgument) {
+        self.name.assert_eq_up_to_span(&other.name);
+        self.value.assert_eq_up_to_span(&other.value);
+    }
+}
+
+impl fmt::Display for EmitDecorator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("@emit")?;
+        if !self.arguments.is_empty() {
+            f.write_str("(")?;
+            for (idx, arg) in self.arguments.iter().enumerate() {
+                if idx > 0 {
+                    f.write_str(", ")?;
+                }
+                fmt::Display::fmt(arg, f)?;
+            }
+            f.write_str(")")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for EmitArgument {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} = {}", self.name, self.value)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct AssignStmt {
-    pub identifier: Identifier,
+    pub left: Expression,
     pub expr: Expression,
     pub span: Span,
 }
 
 #[derive(Debug, Clone)]
 pub struct AssignOpStmt {
-    pub identifier: Identifier,
+    pub left: Expression,
     pub assign_op: AssignOp,
     pub expr: Expression,
     pub span: Span,
@@ -54,6 +110,16 @@ pub struct ForLoopStmt {
     pub identifier: Identifier,
     pub iterator: Expression,
     pub body: ExpressionBlock,
+    pub span: Span,
+    // Whether the source had an explicit `let` in the loop header: `for (let x in xs)`
+    pub has_let: bool,
+    pub annotations: Vec<std::sync::Arc<Header>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExprStmt {
+    pub expr: Expression,
+    pub annotations: Vec<std::sync::Arc<Header>>,
     pub span: Span,
 }
 
@@ -93,8 +159,10 @@ pub enum Stmt {
     ForLoop(ForLoopStmt),
     CForLoop(CForLoopStmt),
     WhileLoop(WhileStmt),
-    /// Expression with trailing semicolon.
-    Expression(Expression),
+    /// Expression without a trailing semicolon.
+    Expression(ExprStmt),
+    /// Expression with a trailing semicolon.
+    Semicolon(Expression),
     Assign(AssignStmt),
     AssignOp(AssignOpStmt),
     Break(Span),
@@ -120,11 +188,34 @@ impl fmt::Display for AssignOp {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Header {
+    pub level: u8,
+    pub title: String,
+    pub span: Span,
+}
+
 impl fmt::Display for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Stmt::Let(stmt) => write!(f, "let {} = {}", stmt.identifier, stmt.expr),
-            Stmt::ForLoop(stmt) => write!(f, "for {} in {}", stmt.identifier, stmt.iterator),
+            Stmt::Let(stmt) => {
+                if let Some(ann) = &stmt.annotation {
+                    write!(f, "let {}: {} = {}", stmt.identifier, ann, stmt.expr)?;
+                } else {
+                    write!(f, "let {} = {}", stmt.identifier, stmt.expr)?;
+                }
+                if let Some(emit) = &stmt.emit {
+                    write!(f, " {}", emit)?;
+                }
+                Ok(())
+            }
+            Stmt::ForLoop(stmt) => {
+                if stmt.has_let {
+                    write!(f, "for let {} in {}", stmt.identifier, stmt.iterator)
+                } else {
+                    write!(f, "for {} in {}", stmt.identifier, stmt.iterator)
+                }
+            }
             Stmt::CForLoop(stmt) => {
                 f.write_str("for (")?;
 
@@ -146,10 +237,11 @@ impl fmt::Display for Stmt {
 
                 write!(f, ") {}", stmt.body)
             }
-            Stmt::Expression(expr) => write!(f, "{expr}"),
-            Stmt::Assign(stmt) => write!(f, "{} = {}", stmt.identifier, stmt.expr),
+            Stmt::Expression(es) => write!(f, "{}", es.expr),
+            Stmt::Semicolon(expr) => write!(f, "{expr};"),
+            Stmt::Assign(stmt) => write!(f, "{} = {}", stmt.left, stmt.expr),
             Stmt::AssignOp(stmt) => {
-                write!(f, "{} {} {}", stmt.identifier, stmt.assign_op, stmt.expr)
+                write!(f, "{} {} {}", stmt.left, stmt.assign_op, stmt.expr)
             }
             Stmt::WhileLoop(stmt) => write!(f, "while {} {}", stmt.condition, stmt.body),
             Stmt::Break(_) => f.write_str("break"),
@@ -177,25 +269,35 @@ impl Stmt {
         match (self, other) {
             (Stmt::Let(stmt1), Stmt::Let(stmt2)) => {
                 stmt1.identifier.assert_eq_up_to_span(&stmt2.identifier);
+                // Compare annotations if both present
+                match (&stmt1.annotation, &stmt2.annotation) {
+                    (Some(a1), Some(a2)) => a1.assert_eq_up_to_span(a2),
+                    (None, None) => {}
+                    _ => panic!("Let annotations do not match up to span"),
+                }
                 stmt1.expr.assert_eq_up_to_span(&stmt2.expr);
+                assert_opt(&stmt1.emit, &stmt2.emit, |a, b| a.assert_eq_up_to_span(b));
             }
             (Stmt::ForLoop(stmt1), Stmt::ForLoop(stmt2)) => {
                 stmt1.identifier.assert_eq_up_to_span(&stmt2.identifier);
                 stmt1.iterator.assert_eq_up_to_span(&stmt2.iterator);
                 stmt1.body.assert_eq_up_to_span(&stmt2.body);
             }
-            (Stmt::Expression(expr1), Stmt::Expression(expr2)) => {
+            (Stmt::Expression(es1), Stmt::Expression(es2)) => {
+                es1.expr.assert_eq_up_to_span(&es2.expr);
+            }
+            (Stmt::Semicolon(expr1), Stmt::Semicolon(expr2)) => {
                 expr1.assert_eq_up_to_span(expr2);
             }
 
             (Stmt::Assign(stmt1), Stmt::Assign(stmt2)) => {
-                stmt1.identifier.assert_eq_up_to_span(&stmt2.identifier);
+                stmt1.left.assert_eq_up_to_span(&stmt2.left);
                 stmt1.expr.assert_eq_up_to_span(&stmt2.expr);
             }
 
             (Stmt::AssignOp(stmt1), Stmt::AssignOp(stmt2)) => {
                 assert_eq!(stmt1.assign_op, stmt2.assign_op);
-                stmt1.identifier.assert_eq_up_to_span(&stmt2.identifier);
+                stmt1.left.assert_eq_up_to_span(&stmt2.left);
                 stmt1.expr.assert_eq_up_to_span(&stmt2.expr);
             }
 
@@ -242,6 +344,7 @@ impl Stmt {
                 Stmt::Let(_)
                 | Stmt::ForLoop(_)
                 | Stmt::Expression(_)
+                | Stmt::Semicolon(_)
                 | Stmt::Assign(_)
                 | Stmt::AssignOp(_)
                 | Stmt::CForLoop(_)
@@ -260,17 +363,30 @@ impl Stmt {
     pub fn identifier(&self) -> &Identifier {
         match self {
             Stmt::Let(LetStmt { identifier, .. })
-            | Stmt::ForLoop(ForLoopStmt { identifier, .. })
-            | Stmt::Assign(AssignStmt { identifier, .. })
-            | Stmt::AssignOp(AssignOpStmt { identifier, .. }) => identifier,
+            | Stmt::ForLoop(ForLoopStmt { identifier, .. }) => identifier,
 
             Stmt::Expression(_) => panic!("expressions don't have identifiers"),
+            Stmt::Semicolon(_) => panic!("semicolon expressions don't have identifiers"),
             Stmt::WhileLoop(_) => panic!("while loops don't have identifiers"),
             Stmt::Break(_) => panic!("break statements don't have identifiers"),
             Stmt::Continue(_) => panic!("continue statements don't have identifiers"),
             Stmt::Return(_) => panic!("return statements don't have identifiers"),
             Stmt::Assert(_) => panic!("assert statements don't have identifiers"),
             Stmt::CForLoop(_) => panic!("c-like for loops don't have identifiers"),
+            Stmt::Assign(stmt) => match &stmt.left {
+                Expression::Identifier(id) => id,
+                _ => panic!(
+                    "left side of assignment is not an identifier: {:?}",
+                    stmt.left
+                ),
+            },
+            Stmt::AssignOp(stmt) => match &stmt.left {
+                Expression::Identifier(id) => id,
+                _ => panic!(
+                    "left side of assignment is not an identifier: {:?}",
+                    stmt.left
+                ),
+            },
         }
     }
 
@@ -287,7 +403,8 @@ impl Stmt {
             | Stmt::Continue(span)
             | Stmt::Assert(AssertStmt { span, .. }) => span,
 
-            Stmt::Expression(expr) => expr.span(),
+            Stmt::Expression(es) => &es.span,
+            Stmt::Semicolon(expr) => expr.span(),
         }
     }
 

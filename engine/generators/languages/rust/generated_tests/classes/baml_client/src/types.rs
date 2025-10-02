@@ -13,24 +13,171 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Represents the BAML `null` type in Rust
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct NullValue;
+
+impl baml_client_rust::types::ToBamlValue for NullValue {
+    fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+        Ok(baml_client_rust::types::BamlValue::Null)
+    }
+}
+
+impl baml_client_rust::types::FromBamlValue for NullValue {
+    fn from_baml_value(
+        value: baml_client_rust::types::BamlValue,
+    ) -> baml_client_rust::BamlResult<Self> {
+        match value {
+            baml_client_rust::types::BamlValue::Null => Ok(NullValue),
+            other => Err(baml_client_rust::BamlError::deserialization(format!(
+                "Expected null, got {:?}",
+                other
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum RustLiteralKind {
+    String,
+    Int,
+    Bool,
+}
+
+macro_rules! define_baml_media_type {
+    ($name:ident, $variant:ident) => {
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+        #[serde(transparent)]
+        pub struct $name {
+            inner: baml_types::BamlMedia,
+        }
+
+        impl $name {
+            pub fn new(media: baml_types::BamlMedia) -> baml_client_rust::BamlResult<Self> {
+                if media.media_type == baml_types::BamlMediaType::$variant {
+                    Ok(Self { inner: media })
+                } else {
+                    Err(baml_client_rust::BamlError::deserialization(format!(
+                        "Expected {:?} media, got {:?}",
+                        baml_types::BamlMediaType::$variant,
+                        media.media_type
+                    )))
+                }
+            }
+
+            pub fn from_url(url: impl Into<String>, mime_type: Option<String>) -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::url(
+                        baml_types::BamlMediaType::$variant,
+                        url.into(),
+                        mime_type,
+                    ),
+                }
+            }
+
+            pub fn from_base64(base64: impl Into<String>, mime_type: Option<String>) -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::base64(
+                        baml_types::BamlMediaType::$variant,
+                        base64.into(),
+                        mime_type,
+                    ),
+                }
+            }
+
+            pub fn into_inner(self) -> baml_types::BamlMedia {
+                self.inner
+            }
+
+            pub fn as_inner(&self) -> &baml_types::BamlMedia {
+                &self.inner
+            }
+        }
+
+        impl TryFrom<baml_types::BamlMedia> for $name {
+            type Error = baml_client_rust::BamlError;
+
+            fn try_from(media: baml_types::BamlMedia) -> std::result::Result<Self, Self::Error> {
+                Self::new(media)
+            }
+        }
+
+        impl From<$name> for baml_types::BamlMedia {
+            fn from(value: $name) -> Self {
+                value.inner
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::base64(
+                        baml_types::BamlMediaType::$variant,
+                        String::new(),
+                        None,
+                    ),
+                }
+            }
+        }
+
+        impl baml_client_rust::types::ToBamlValue for $name {
+            fn to_baml_value(
+                self,
+            ) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+                Ok(baml_client_rust::types::BamlValue::Media(self.inner))
+            }
+        }
+
+        impl baml_client_rust::types::FromBamlValue for $name {
+            fn from_baml_value(
+                value: baml_client_rust::types::BamlValue,
+            ) -> baml_client_rust::BamlResult<Self> {
+                match value {
+                    baml_client_rust::types::BamlValue::Media(media) => {
+                        if media.media_type == baml_types::BamlMediaType::$variant {
+                            Ok(Self { inner: media })
+                        } else {
+                            Err(baml_client_rust::BamlError::deserialization(format!(
+                                "Expected {:?} media, got {:?}",
+                                baml_types::BamlMediaType::$variant,
+                                media.media_type
+                            )))
+                        }
+                    }
+                    other => Err(baml_client_rust::BamlError::deserialization(format!(
+                        "Expected media value, got {:?}",
+                        other
+                    ))),
+                }
+            }
+        }
+    };
+}
+
+define_baml_media_type!(BamlImage, Image);
+define_baml_media_type!(BamlAudio, Audio);
+define_baml_media_type!(BamlPdf, Pdf);
+define_baml_media_type!(BamlVideo, Video);
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SimpleClass {
-    pub digits: String,
+    pub digits: i64,
 
     pub words: String,
 }
 
 impl SimpleClass {
     /// Create a new SimpleClass instance
-    pub fn new(digits: String, words: String) -> Self {
+    pub fn new(digits: i64, words: String) -> Self {
         Self { digits, words }
     }
 }
 
 impl Default for SimpleClass {
     fn default() -> Self {
-        Self::new(String::new(), String::new())
+        Self::new(0, String::new())
     }
 }
 
@@ -53,26 +200,42 @@ impl baml_client_rust::types::FromBamlValue for SimpleClass {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let digits = map
-                    .get("digits")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let digits = match map.get("digits") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'digits' in SimpleClass"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let words = map
-                    .get("words")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let words = match map.get("words") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'words' in SimpleClass"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(digits, words))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(

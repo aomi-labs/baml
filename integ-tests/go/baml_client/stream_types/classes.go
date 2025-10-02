@@ -22,6 +22,73 @@ import (
 	"example.com/integ-tests/baml_client/types"
 )
 
+type AddTodoItem struct {
+	Type        string  `json:"type"`
+	Item        *string `json:"item"`
+	Time        *string `json:"time"`
+	Description *string `json:"description"`
+}
+
+func (c *AddTodoItem) Decode(holder *cffi.CFFIValueClass, typeMap baml.TypeMap) {
+	typeName := holder.Name
+	if typeName.Namespace != cffi.CFFITypeNamespace_STREAM_TYPES {
+		panic(fmt.Sprintf("expected cffi.CFFITypeNamespace_STREAM_TYPES, got %s", string(typeName.Namespace.String())))
+	}
+	if typeName.Name != "AddTodoItem" {
+		panic(fmt.Sprintf("expected AddTodoItem, got %s", typeName.Name))
+	}
+
+	for _, field := range holder.Fields {
+		key := field.Key
+		valueHolder := field.Value
+		switch key {
+
+		case "type":
+			c.Type = baml.Decode(valueHolder).Interface().(string)
+
+		case "item":
+			c.Item = baml.Decode(valueHolder).Interface().(*string)
+
+		case "time":
+			c.Time = baml.Decode(valueHolder).Interface().(*string)
+
+		case "description":
+			c.Description = baml.Decode(valueHolder).Interface().(*string)
+
+		default:
+
+			panic(fmt.Sprintf("unexpected field: %s in class AddTodoItem", key))
+
+		}
+	}
+
+}
+
+func (c AddTodoItem) Encode() (*cffi.CFFIValueHolder, error) {
+	fields := map[string]any{}
+
+	fields["type"] = c.Type
+
+	fields["item"] = c.Item
+
+	fields["time"] = c.Time
+
+	fields["description"] = c.Description
+
+	return baml.EncodeClass(c.BamlEncodeName, fields, nil)
+}
+
+func (c AddTodoItem) BamlTypeName() string {
+	return "AddTodoItem"
+}
+
+func (u AddTodoItem) BamlEncodeName() *cffi.CFFITypeName {
+	return &cffi.CFFITypeName{
+		Namespace: cffi.CFFITypeNamespace_STREAM_TYPES,
+		Name:      "AddTodoItem",
+	}
+}
+
 type AnotherObject struct {
 	Id      *string `json:"id"`
 	Thingy2 *string `json:"thingy2"`
@@ -1254,6 +1321,73 @@ func (u Document1559) BamlEncodeName() *cffi.CFFITypeName {
 	return &cffi.CFFITypeName{
 		Namespace: cffi.CFFITypeNamespace_STREAM_TYPES,
 		Name:      "Document1559",
+	}
+}
+
+type DummyJsonTodo struct {
+	Id        *int64  `json:"id"`
+	Todo      *string `json:"todo"`
+	Completed *bool   `json:"completed"`
+	UserId    *int64  `json:"userId"`
+}
+
+func (c *DummyJsonTodo) Decode(holder *cffi.CFFIValueClass, typeMap baml.TypeMap) {
+	typeName := holder.Name
+	if typeName.Namespace != cffi.CFFITypeNamespace_STREAM_TYPES {
+		panic(fmt.Sprintf("expected cffi.CFFITypeNamespace_STREAM_TYPES, got %s", string(typeName.Namespace.String())))
+	}
+	if typeName.Name != "DummyJsonTodo" {
+		panic(fmt.Sprintf("expected DummyJsonTodo, got %s", typeName.Name))
+	}
+
+	for _, field := range holder.Fields {
+		key := field.Key
+		valueHolder := field.Value
+		switch key {
+
+		case "id":
+			c.Id = baml.Decode(valueHolder).Interface().(*int64)
+
+		case "todo":
+			c.Todo = baml.Decode(valueHolder).Interface().(*string)
+
+		case "completed":
+			c.Completed = baml.Decode(valueHolder).Interface().(*bool)
+
+		case "userId":
+			c.UserId = baml.Decode(valueHolder).Interface().(*int64)
+
+		default:
+
+			panic(fmt.Sprintf("unexpected field: %s in class DummyJsonTodo", key))
+
+		}
+	}
+
+}
+
+func (c DummyJsonTodo) Encode() (*cffi.CFFIValueHolder, error) {
+	fields := map[string]any{}
+
+	fields["id"] = c.Id
+
+	fields["todo"] = c.Todo
+
+	fields["completed"] = c.Completed
+
+	fields["userId"] = c.UserId
+
+	return baml.EncodeClass(c.BamlEncodeName, fields, nil)
+}
+
+func (c DummyJsonTodo) BamlTypeName() string {
+	return "DummyJsonTodo"
+}
+
+func (u DummyJsonTodo) BamlEncodeName() *cffi.CFFITypeName {
+	return &cffi.CFFITypeName{
+		Namespace: cffi.CFFITypeNamespace_STREAM_TYPES,
+		Name:      "DummyJsonTodo",
 	}
 }
 
@@ -4443,6 +4577,116 @@ func (u RecursiveAliasDependency) BamlEncodeName() *cffi.CFFITypeName {
 	}
 }
 
+type RenderEnumInput struct {
+	TestKey           *string `json:"testKey"`
+	DynamicProperties map[string]any
+}
+
+func (c *RenderEnumInput) Decode(holder *cffi.CFFIValueClass, typeMap baml.TypeMap) {
+	typeName := holder.Name
+	if typeName.Namespace != cffi.CFFITypeNamespace_STREAM_TYPES {
+		panic(fmt.Sprintf("expected cffi.CFFITypeNamespace_STREAM_TYPES, got %s", string(typeName.Namespace.String())))
+	}
+	if typeName.Name != "RenderEnumInput" {
+		panic(fmt.Sprintf("expected RenderEnumInput, got %s", typeName.Name))
+	}
+
+	c.DynamicProperties = make(map[string]any)
+
+	for _, field := range holder.Fields {
+		key := field.Key
+		valueHolder := field.Value
+		switch key {
+
+		case "testKey":
+			c.TestKey = baml.Decode(valueHolder).Interface().(*string)
+
+		default:
+
+			c.DynamicProperties[key] = baml.Decode(valueHolder)
+
+		}
+	}
+
+}
+
+func (c RenderEnumInput) Encode() (*cffi.CFFIValueHolder, error) {
+	fields := map[string]any{}
+
+	fields["testKey"] = c.TestKey
+
+	return baml.EncodeClass(c.BamlEncodeName, fields, &c.DynamicProperties)
+}
+
+func (c RenderEnumInput) BamlTypeName() string {
+	return "RenderEnumInput"
+}
+
+func (u RenderEnumInput) BamlEncodeName() *cffi.CFFITypeName {
+	return &cffi.CFFITypeName{
+		Namespace: cffi.CFFITypeNamespace_STREAM_TYPES,
+		Name:      "RenderEnumInput",
+	}
+}
+
+type RenderTestClass struct {
+	Name              *string                 `json:"name"`
+	Status            *types.RenderStatusEnum `json:"status"`
+	DynamicProperties map[string]any
+}
+
+func (c *RenderTestClass) Decode(holder *cffi.CFFIValueClass, typeMap baml.TypeMap) {
+	typeName := holder.Name
+	if typeName.Namespace != cffi.CFFITypeNamespace_STREAM_TYPES {
+		panic(fmt.Sprintf("expected cffi.CFFITypeNamespace_STREAM_TYPES, got %s", string(typeName.Namespace.String())))
+	}
+	if typeName.Name != "RenderTestClass" {
+		panic(fmt.Sprintf("expected RenderTestClass, got %s", typeName.Name))
+	}
+
+	c.DynamicProperties = make(map[string]any)
+
+	for _, field := range holder.Fields {
+		key := field.Key
+		valueHolder := field.Value
+		switch key {
+
+		case "name":
+			c.Name = baml.Decode(valueHolder).Interface().(*string)
+
+		case "status":
+			c.Status = baml.Decode(valueHolder).Interface().(*types.RenderStatusEnum)
+
+		default:
+
+			c.DynamicProperties[key] = baml.Decode(valueHolder)
+
+		}
+	}
+
+}
+
+func (c RenderTestClass) Encode() (*cffi.CFFIValueHolder, error) {
+	fields := map[string]any{}
+
+	fields["name"] = c.Name
+
+	fields["status"] = c.Status
+
+	return baml.EncodeClass(c.BamlEncodeName, fields, &c.DynamicProperties)
+}
+
+func (c RenderTestClass) BamlTypeName() string {
+	return "RenderTestClass"
+}
+
+func (u RenderTestClass) BamlEncodeName() *cffi.CFFITypeName {
+	return &cffi.CFFITypeName{
+		Namespace: cffi.CFFITypeNamespace_STREAM_TYPES,
+		Name:      "RenderTestClass",
+	}
+}
+
 type Resume struct {
 	Name       *string     `json:"name"`
 	Email      *string     `json:"email"`
@@ -5272,6 +5516,61 @@ func (u TestOutputClass) BamlEncodeName() *cffi.CFFITypeName {
 	return &cffi.CFFITypeName{
 		Namespace: cffi.CFFITypeNamespace_STREAM_TYPES,
 		Name:      "TestOutputClass",
+	}
+}
+
+type TodoMessageToUser struct {
+	Type    string  `json:"type"`
+	Message *string `json:"message"`
+}
+
+func (c *TodoMessageToUser) Decode(holder *cffi.CFFIValueClass, typeMap baml.TypeMap) {
+	typeName := holder.Name
+	if typeName.Namespace != cffi.CFFITypeNamespace_STREAM_TYPES {
+		panic(fmt.Sprintf("expected cffi.CFFITypeNamespace_STREAM_TYPES, got %s", string(typeName.Namespace.String())))
+	}
+	if typeName.Name != "TodoMessageToUser" {
+		panic(fmt.Sprintf("expected TodoMessageToUser, got %s", typeName.Name))
+	}
+
+	for _, field := range holder.Fields {
+		key := field.Key
+		valueHolder := field.Value
+		switch key {
+
+		case "type":
+			c.Type = baml.Decode(valueHolder).Interface().(string)
+
+		case "message":
+			c.Message = baml.Decode(valueHolder).Interface().(*string)
+
+		default:
+
+			panic(fmt.Sprintf("unexpected field: %s in class TodoMessageToUser", key))
+
+		}
+	}
+
+}
+
+func (c TodoMessageToUser) Encode() (*cffi.CFFIValueHolder, error) {
+	fields := map[string]any{}
+
+	fields["type"] = c.Type
+
+	fields["message"] = c.Message
+
+	return baml.EncodeClass(c.BamlEncodeName, fields, nil)
+}
+
+func (c TodoMessageToUser) BamlTypeName() string {
+	return "TodoMessageToUser"
+}
+
+func (u TodoMessageToUser) BamlEncodeName() *cffi.CFFITypeName {
+	return &cffi.CFFITypeName{
+		Namespace: cffi.CFFITypeNamespace_STREAM_TYPES,
+		Name:      "TodoMessageToUser",
 	}
 }
 

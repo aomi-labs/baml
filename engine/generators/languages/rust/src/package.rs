@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use dir_writer::IntermediateRepr;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Package {
@@ -28,7 +28,7 @@ impl Package {
         if self.package_path == other.package_path {
             return "".to_string();
         }
-        
+
         // Convert baml_client.types to crate::types::
         let mut path = String::new();
         for (i, part) in self.package_path.iter().enumerate() {

@@ -26,7 +26,12 @@ use std::io::IsTerminal;
 
 use colored::{Color, Colorize};
 
-use crate::{Function, Instruction, Object, Value};
+use crate::{
+    bytecode::Instruction,
+    indexable::{EvalStack, GlobalPool},
+    types::{Function, Object, Value},
+    ObjectIndex, ObjectPool, StackIndex,
+};
 
 /// Context aware instruction display.
 ///
@@ -45,9 +50,9 @@ use crate::{Function, Instruction, Object, Value};
 pub fn display_instruction(
     instruction_ptr: isize,
     function: &Function,
-    stack: &[Value],
-    objects: &[Object],
-    globals: &[Value],
+    stack: &EvalStack,
+    objects: &ObjectPool,
+    globals: &GlobalPool,
 ) -> (String, String) {
     let instruction = &function.bytecode.instructions[instruction_ptr as usize];
 
@@ -81,7 +86,9 @@ pub fn display_instruction(
                 break 'field String::new();
             }
 
-            let Value::Object(reference) = stack[stack.len() - 2] else {
+            // TODO: prevent panic here
+
+            let Value::Object(reference) = stack[StackIndex::from_raw(stack.len() - 2)] else {
                 break 'field String::from("(ERROR: value not an object)");
             };
 
@@ -98,16 +105,21 @@ pub fn display_instruction(
         Instruction::Jump(offset) | Instruction::JumpIfFalse(offset) => {
             format!("(to {})", instruction_ptr + offset)
         }
-        Instruction::AllocInstance(index) => {
-            format!("({})", display_value(&globals[*index], objects))
+        Instruction::AllocInstance(index) | Instruction::AllocVariant(index) => {
+            format!("({})", display_object(objects, *index))
         }
         Instruction::Pop(_)
+        | Instruction::Copy(_)
         | Instruction::PopReplace(_)
         | Instruction::BinOp(_)
         | Instruction::CmpOp(_)
         | Instruction::UnaryOp(_)
         | Instruction::AllocArray(_)
+        | Instruction::AllocMap(_)
         | Instruction::LoadArrayElement
+        | Instruction::LoadMapElement
+        | Instruction::StoreArrayElement
+        | Instruction::StoreMapElement
         | Instruction::DispatchFuture(_)
         | Instruction::Await
         | Instruction::Call(_)
@@ -123,18 +135,27 @@ pub fn display_instruction(
 /// The default display for objects is just a reference number. If we want
 /// all the information, we have to dereference the object and call it's
 /// `to_string` implementation.
-pub fn display_value(value: &Value, objects: &[Object]) -> String {
+pub fn display_value(value: &Value, objects: &ObjectPool) -> String {
     match value {
-        Value::Object(index) => match &objects[*index] {
-            // This one's a bit tricky to print.
-            Object::Instance(instance) => match &objects[instance.class] {
-                Object::Class(class) => format!("<{} instance>", class.name),
-                // This will most likely never happen, but we're trying not
-                // to panic.
-                other => format!("<{other} instance>"),
-            },
+        Value::Object(index) => display_object(objects, *index),
 
-            other => other.to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn display_object(objects: &ObjectPool, index: ObjectIndex) -> String {
+    match &objects[index] {
+        // This one's a bit tricky to print.
+        Object::Instance(instance) => match &objects[instance.class] {
+            Object::Class(class) => format!("<{} instance>", class.name),
+            // This will most likely never happen, but we're trying not
+            // to panic.
+            other => format!("<{other} instance>"),
+        },
+
+        Object::Variant(variant) => match &objects[variant.enm] {
+            Object::Enum(enm) => format!("<{} variant>", enm.name),
+            other => format!("<{other} variant>"),
         },
 
         other => other.to_string(),
@@ -153,10 +174,13 @@ fn instruction_color(instruction: &Instruction) -> Color {
         | Instruction::LoadVar(_)
         | Instruction::LoadGlobal(_)
         | Instruction::LoadField(_)
-        | Instruction::LoadArrayElement => Color::Blue,
-        Instruction::StoreVar(_) | Instruction::StoreGlobal(_) | Instruction::StoreField(_) => {
-            Color::Green
-        }
+        | Instruction::LoadArrayElement
+        | Instruction::LoadMapElement => Color::Blue,
+        Instruction::StoreVar(_)
+        | Instruction::StoreGlobal(_)
+        | Instruction::StoreField(_)
+        | Instruction::StoreArrayElement
+        | Instruction::StoreMapElement => Color::Green,
         Instruction::BinOp(_) | Instruction::CmpOp(_) | Instruction::UnaryOp(_) => {
             Color::BrightBlue
         }
@@ -165,8 +189,12 @@ fn instruction_color(instruction: &Instruction) -> Color {
         Instruction::Assert
         | Instruction::Return
         | Instruction::Pop(_)
+        | Instruction::Copy(_)
         | Instruction::PopReplace(_) => Color::Red,
-        Instruction::AllocInstance(_) | Instruction::AllocArray(_) => Color::Cyan,
+        Instruction::AllocMap(_)
+        | Instruction::AllocInstance(_)
+        | Instruction::AllocVariant(_)
+        | Instruction::AllocArray(_) => Color::Cyan,
         Instruction::DispatchFuture(_) | Instruction::Await => Color::BrightGreen,
     }
 }
@@ -219,9 +247,9 @@ impl Col {
 /// symmetric and returns the entire table.
 pub fn display_bytecode(
     function: &Function,
-    stack: &[Value],
-    objects: &[Object],
-    globals: &[Value],
+    stack: &EvalStack,
+    objects: &ObjectPool,
+    globals: &GlobalPool,
     use_colors: bool,
 ) -> String {
     if function.bytecode.instructions.is_empty() {
@@ -323,7 +351,12 @@ pub fn display_bytecode(
 }
 
 /// Prints the dissassembly of a function.
-pub fn disassemble(function: &Function, stack: &[Value], objects: &[Object], globals: &[Value]) {
+pub fn disassemble(
+    function: &Function,
+    stack: &EvalStack,
+    objects: &ObjectPool,
+    globals: &GlobalPool,
+) {
     let use_colors = std::io::stdout().is_terminal();
 
     let disassembly = display_bytecode(function, stack, objects, globals, use_colors);

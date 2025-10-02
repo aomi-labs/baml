@@ -25,13 +25,13 @@ function StoreFnCallInLocalVar(n: int) -> int {
 }
 
 function BoolToIntWithIfElse(b: bool) -> int {
-    if b { 1 } else { 0 }
+    if (b) { 1 } else { 0 }
 }
 
 function ReturnElseIfExpr(a: bool, b: bool) -> int {
-    if a {
+    if (a) {
         1
-    } else if b {
+    } else if (b) {
         2
     } else {
         3
@@ -39,9 +39,9 @@ function ReturnElseIfExpr(a: bool, b: bool) -> int {
 }
 
 function AssignElseIfExpr(a: bool, b: bool) -> int {
-    let result = if a {
+    let result = if (a) {
         1
-    } else if b {
+    } else if (b) {
         2
     } else {
         3
@@ -53,10 +53,10 @@ function AssignElseIfExpr(a: bool, b: bool) -> int {
 function NormalElseIfStmt(a: bool, b: bool) -> int {
     let v = 0;
 
-    if a {
+    if (a) {
         let one = 1;
         StoreFnCallInLocalVar(one);
-    } else if b {
+    } else if (b) {
         let two = 2;
         StoreFnCallInLocalVar(two);
     } else {
@@ -68,14 +68,14 @@ function NormalElseIfStmt(a: bool, b: bool) -> int {
 }
 
 function IterativeFibonacci(n: int) -> int {
-    let mut a = 0;
-    let mut b = 1;
+    let a = 0;
+    let b = 1;
 
-    if n == 0 {
+    if (n == 0) {
         b
     } else {
-        let mut i = 1;
-        while i <= n {
+        let i = 1;
+        while (i <= n) {
             let c = a + b;
             a = b;
             b = c;
@@ -85,31 +85,44 @@ function IterativeFibonacci(n: int) -> int {
     }
 }
 
-function LengthOfArray(arr: int[]) -> int {
-    arr.len()
-}
-
 function SumArray(arr: int[]) -> int {
-    let mut sum = 0;
-    for a in arr {
+    let sum = 0;
+    for (let a in arr) {
         sum += a;
     }
     sum
 }
 
 function SumFromTo(x: int, y: int) -> int {
-    let mut s = 0;
+    let s = 0;
 
-    for (let mut i = x; i <= y; i += 1) {
+    for (let i = x; i <= y; i += 1) {
         s += i;
     }
 
     s
 }
 
+function ReturnCategory(category: Category) -> Category {
+    category
+}
+
+function ReturnImageFromUrl(url: string) -> image {
+    image.from_url(url)
+}
+
+function HomeEnvVarIsEmpty() -> bool {
+    let home = env.HOME;
+    home == ""
+}
+
 // --------------------------------
 // Expression Functions with LLM calls.
 // --------------------------------
+
+function CallLlmDescribeImage(img: image) -> string {
+    DescribeImage(img)
+}
 
 function LlmReturnNumber(n: int) -> int {
     client GPT35LegacyProvider // GPT 3.5 Turbo
@@ -129,5 +142,20 @@ function StoreLlmCallInLocalVar(n: int) -> int {
 }
 
 function BoolToIntWithIfElseCallingLlm(b: bool) -> int {
-    if b { LlmReturnNumber(1) } else { LlmReturnNumber(0) }
+    if (b) { LlmReturnNumber(1) } else { LlmReturnNumber(0) }
+}
+
+/// Other builtins
+
+class DummyJsonTodo {
+    id int
+    todo string
+    completed bool
+    userId int
+}
+
+function ExecFetchAs(url: string) -> DummyJsonTodo {
+    let todo = baml.fetch_as<DummyJsonTodo>(url);
+
+    todo
 }

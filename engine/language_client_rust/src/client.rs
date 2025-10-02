@@ -1,20 +1,24 @@
-use baml_cffi as ffi;
-
 use crate::{
-    // ffi,
+    ffi,
+    runtime::{RuntimeHandle, RuntimeHandleArc},
     types::{BamlValue, FromBamlValue},
-    BamlContext,
-    BamlError,
-    BamlResult,
-    FunctionResult,
-    StreamState,
+    BamlContext, BamlError, BamlResult, FunctionResult, StreamState,
 };
+use baml_cffi::baml::cffi::{
+    cffi_value_holder, cffi_value_raw_object::Object as RawObjectVariant, CffiEnvVar,
+    CffiFunctionArguments, CffiMapEntry, CffiTypeName, CffiTypeNamespace, CffiValueClass,
+    CffiValueEnum, CffiValueHolder, CffiValueList, CffiValueMap, CffiValueNull, CffiValueRawObject,
+};
+use baml_cffi::{rust::media_to_raw, DecodeFromBuffer};
 use futures::{Stream, StreamExt};
-use serde_json;
+use once_cell::sync::{Lazy, OnceCell};
+use prost::Message;
 use std::collections::HashMap;
-use std::os::raw::c_void;
+use std::ffi::CString;
+use std::os::raw::{c_char, c_void};
 use std::path::Path;
 use std::pin::Pin;
+use std::slice;
 use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc, Mutex,
@@ -25,8 +29,8 @@ use tokio::sync::{mpsc as async_mpsc, oneshot};
 /// High-level BAML client for executing functions
 #[derive(Clone, Debug)]
 pub struct BamlClient {
-    runtime_ptr: *const c_void,
-    callback_manager: Arc<CallbackManager>,
+    runtime: RuntimeHandleArc,
+    callback_manager: CallbackManager,
 }
 
 // Ensure BamlClient is Send + Sync
@@ -34,37 +38,81 @@ unsafe impl Send for BamlClient {}
 unsafe impl Sync for BamlClient {}
 
 /// Manages async callbacks from the BAML runtime
-#[derive(Default, Debug)]
+#[derive(Clone, Debug)]
 struct CallbackManager {
+    registry: Arc<CallbackRegistry>,
+}
+
+#[derive(Debug)]
+struct CallbackRegistry {
     next_id: AtomicU32,
-    pending_calls: Arc<Mutex<HashMap<u32, oneshot::Sender<CallbackResult>>>>,
-    pending_streams: Arc<Mutex<HashMap<u32, async_mpsc::UnboundedSender<StreamEvent>>>>,
+    pending_calls: Mutex<HashMap<u32, oneshot::Sender<CallbackResult>>>,
+    pending_streams: Mutex<HashMap<u32, async_mpsc::UnboundedSender<StreamEvent>>>,
 }
 
-#[derive(Debug, Clone)]
-struct CallbackResult {
-    success: bool,
-    data: String,
+#[derive(Debug)]
+enum CallbackResult {
+    Success { value: BamlValue },
+    Error { error: BamlError },
 }
 
-#[derive(Debug, Clone)]
-struct StreamEvent {
-    is_final: bool,
-    data: String,
-    success: bool,
+#[derive(Debug)]
+enum StreamEvent {
+    Success { value: BamlValue, is_final: bool },
+    Error { error: BamlError },
+    Tick,
 }
+
+static CALLBACK_REGISTRY: Lazy<Arc<CallbackRegistry>> =
+    Lazy::new(|| Arc::new(CallbackRegistry::new()));
+static CALLBACKS_REGISTERED: OnceCell<()> = OnceCell::new();
 
 impl CallbackManager {
     fn new() -> Self {
+        CallbackManager::ensure_callbacks_registered();
         Self {
-            next_id: AtomicU32::new(1),
-            pending_calls: Arc::new(Mutex::new(HashMap::new())),
-            pending_streams: Arc::new(Mutex::new(HashMap::new())),
+            registry: CALLBACK_REGISTRY.clone(),
         }
     }
 
+    fn ensure_callbacks_registered() {
+        CALLBACKS_REGISTERED.get_or_init(|| {
+            ffi::register_callbacks(
+                ffi_result_callback,
+                ffi_error_callback,
+                ffi_on_tick_callback,
+            );
+        });
+    }
+
     fn get_next_id(&self) -> u32 {
-        self.next_id.fetch_add(1, Ordering::SeqCst)
+        self.registry.next_id.fetch_add(1, Ordering::SeqCst)
+    }
+
+    fn register_call(&self, id: u32) -> oneshot::Receiver<CallbackResult> {
+        self.registry.register_call(id)
+    }
+
+    fn register_stream(&self, id: u32) -> async_mpsc::UnboundedReceiver<StreamEvent> {
+        self.registry.register_stream(id)
+    }
+
+    fn cancel_call(&self, id: u32) {
+        self.registry.cancel_call(id);
+    }
+
+    fn cancel_stream(&self, id: u32) {
+        self.registry.cancel_stream(id);
+    }
+}
+
+impl CallbackRegistry {
+    fn new() -> Self {
+        Self {
+            next_id: AtomicU32::new(1),
+            pending_calls: Mutex::new(HashMap::new()),
+            pending_streams: Mutex::new(HashMap::new()),
+        }
     }
 
     fn register_call(&self, id: u32) -> oneshot::Receiver<CallbackResult> {
@@ -79,26 +127,187 @@ impl CallbackManager {
         rx
     }
 
-    fn handle_callback(&self, id: u32, success: bool, data: String) {
-        if let Some(sender) = self.pending_calls.lock().unwrap().remove(&id) {
-            let _ = sender.send(CallbackResult { success, data });
-        }
+    fn cancel_call(&self, id: u32) {
+        self.pending_calls.lock().unwrap().remove(&id);
     }
 
-    fn handle_stream_event(&self, id: u32, is_final: bool, success: bool, data: String) {
-        if let Some(sender) = self.pending_streams.lock().unwrap().get(&id) {
-            let _ = sender.send(StreamEvent {
-                is_final,
-                data,
-                success,
-            });
+    fn cancel_stream(&self, id: u32) {
+        self.pending_streams.lock().unwrap().remove(&id);
+    }
 
-            if is_final {
-                // Remove the sender after final event
-                self.pending_streams.lock().unwrap().remove(&id);
+    fn handle_success(&self, id: u32, is_final: bool, value: BamlValue) {
+        if let Some(sender) = self.take_stream_sender(id, is_final) {
+            let _ = sender.send(StreamEvent::Success { value, is_final });
+            return;
+        }
+
+        if is_final {
+            if let Some(sender) = self.pending_calls.lock().unwrap().remove(&id) {
+                let _ = sender.send(CallbackResult::Success { value });
             }
         }
     }
+
+    fn handle_error(&self, id: u32, is_final: bool, error: BamlError) {
+        if let Some(sender) = self.take_stream_sender(id, is_final) {
+            let _ = sender.send(StreamEvent::Error { error });
+            return;
+        }
+
+        if let Some(sender) = self.pending_calls.lock().unwrap().remove(&id) {
+            let _ = sender.send(CallbackResult::Error { error });
+        }
+    }
+
+    fn handle_tick(&self, id: u32) {
+        if let Some(sender) = self.pending_streams.lock().unwrap().get(&id).cloned() {
+            let _ = sender.send(StreamEvent::Tick);
+        }
+    }
+
+    fn take_stream_sender(
+        &self,
+        id: u32,
+        is_final: bool,
+    ) -> Option<async_mpsc::UnboundedSender<StreamEvent>> {
+        let mut streams = self.pending_streams.lock().unwrap();
+        let sender = streams.get(&id).cloned();
+        if is_final {
+            streams.remove(&id);
+        }
+        sender
+    }
+}
+
+fn decode_baml_value(ptr: *const i8, length: usize) -> BamlResult<BamlValue> {
+    if ptr.is_null() || length == 0 {
+        return Err(BamlError::Deserialization(
+            "Received empty buffer from BAML runtime".to_string(),
+        ));
+    }
+
+    BamlValue::from_c_buffer(ptr as *const c_char, length).map_err(|err| {
+        BamlError::Deserialization(format!("Failed to decode value from runtime: {err}"))
+    })
+}
+
+fn make_runtime_error(message: String) -> BamlError {
+    BamlError::Runtime(anyhow::anyhow!(message))
+}
+
+fn take_error_message(ptr: *const c_void) -> String {
+    if ptr.is_null() {
+        return "Unknown error from BAML runtime".to_string();
+    }
+
+    unsafe {
+        let boxed = Box::from_raw(ptr as *mut CString);
+        boxed.to_string_lossy().to_string()
+    }
+}
+
+fn read_utf8(ptr: *const i8, length: usize) -> String {
+    if ptr.is_null() || length == 0 {
+        return String::new();
+    }
+
+    unsafe {
+        let bytes = slice::from_raw_parts(ptr as *const u8, length);
+        String::from_utf8_lossy(bytes).to_string()
+    }
+}
+
+extern "C" fn ffi_result_callback(call_id: u32, is_done: i32, content: *const i8, length: usize) {
+    let is_final = is_done != 0;
+    let registry = CALLBACK_REGISTRY.as_ref();
+
+    match decode_baml_value(content, length) {
+        Ok(value) => registry.handle_success(call_id, is_final, value),
+        Err(error) => registry.handle_error(call_id, is_final, error),
+    }
+}
+
+extern "C" fn ffi_error_callback(call_id: u32, is_done: i32, content: *const i8, length: usize) {
+    let message = read_utf8(content, length);
+    let is_final = is_done != 0;
+    let registry = CALLBACK_REGISTRY.as_ref();
+    registry.handle_error(call_id, is_final, make_runtime_error(message));
+}
+
+extern "C" fn ffi_on_tick_callback(call_id: u32) {
+    let registry = CALLBACK_REGISTRY.as_ref();
+    registry.handle_tick(call_id);
+}
+
+fn encode_baml_value(value: &BamlValue) -> BamlResult<CffiValueHolder> {
+    use cffi_value_holder::Value as HolderValue;
+
+    let encoded_value = match value {
+        BamlValue::Null => HolderValue::NullValue(CffiValueNull {}),
+        BamlValue::Bool(b) => HolderValue::BoolValue(*b),
+        BamlValue::Int(i) => HolderValue::IntValue(*i),
+        BamlValue::Float(f) => HolderValue::FloatValue(*f),
+        BamlValue::String(s) => HolderValue::StringValue(s.clone()),
+        BamlValue::List(items) => {
+            let mut values = Vec::with_capacity(items.len());
+            for item in items {
+                values.push(encode_baml_value(item)?);
+            }
+            HolderValue::ListValue(CffiValueList {
+                value_type: None,
+                values,
+            })
+        }
+        BamlValue::Map(entries) => {
+            let mut encoded_entries = Vec::with_capacity(entries.len());
+            for (key, item) in entries.iter() {
+                encoded_entries.push(CffiMapEntry {
+                    key: key.clone(),
+                    value: Some(encode_baml_value(item)?),
+                });
+            }
+            HolderValue::MapValue(CffiValueMap {
+                key_type: None,
+                value_type: None,
+                entries: encoded_entries,
+            })
+        }
+        BamlValue::Enum(name, variant) => HolderValue::EnumValue(CffiValueEnum {
+            name: Some(CffiTypeName {
+                namespace: CffiTypeNamespace::Internal.into(),
+                name: name.clone(),
+            }),
+            value: variant.clone(),
+            is_dynamic: false,
+        }),
+        BamlValue::Class(name, fields) => {
+            let mut encoded_fields = Vec::with_capacity(fields.len());
+            for (field_name, field_value) in fields.iter() {
+                encoded_fields.push(CffiMapEntry {
+                    key: field_name.clone(),
+                    value: Some(encode_baml_value(field_value)?),
+                });
+            }
+            HolderValue::ClassValue(CffiValueClass {
+                name: Some(CffiTypeName {
+                    namespace: CffiTypeNamespace::Internal.into(),
+                    name: name.clone(),
+                }),
+                fields: encoded_fields,
+            })
+        }
+        BamlValue::Media(media) => {
+            let raw = media_to_raw(media);
+            HolderValue::ObjectValue(CffiValueRawObject {
+                object: Some(RawObjectVariant::Media(raw)),
+            })
+        }
+    };
+
+    Ok(CffiValueHolder {
+        value: Some(encoded_value),
+        r#type: None,
+    })
 }
 
 impl BamlClient {
@@ -183,25 +392,25 @@ impl BamlClient {
             .map_err(|e| BamlError::invalid_argument(format!("Invalid src_files_json: {}", e)))?;
         let env_vars_json_c = std::ffi::CString::new(env_vars_json)
             .map_err(|e| BamlError::invalid_argument(format!("Invalid env_vars_json: {}", e)))?;
-        
+
         let runtime_ptr = ffi::create_baml_runtime(
             root_path_c.as_ptr(),
             src_files_json_c.as_ptr(),
             env_vars_json_c.as_ptr(),
         );
-        
+
         // Check if runtime creation failed (null pointer indicates error)
         if runtime_ptr.is_null() {
-            return Err(BamlError::Runtime(anyhow::anyhow!("Failed to create BAML runtime")));
+            return Err(BamlError::Runtime(anyhow::anyhow!(
+                "Failed to create BAML runtime"
+            )));
         }
 
-        let callback_manager = Arc::new(CallbackManager::new());
-
-        // TODO: Register global callbacks with the FFI interface
-        // This would require exposing callback registration in the FFI
+        let callback_manager = CallbackManager::new();
+        let runtime = Arc::new(RuntimeHandle::new(runtime_ptr));
 
         Ok(Self {
-            runtime_ptr,
+            runtime,
             callback_manager,
         })
     }
@@ -211,10 +420,17 @@ impl BamlClient {
     /// This is primarily for internal use where you already have a runtime pointer
     /// from the FFI interface.
     pub fn with_runtime_ptr(runtime_ptr: *const c_void) -> BamlResult<Self> {
-        let callback_manager = Arc::new(CallbackManager::new());
+        if runtime_ptr.is_null() {
+            return Err(BamlError::Configuration(
+                "Cannot create client from null runtime pointer".to_string(),
+            ));
+        }
+
+        let callback_manager = CallbackManager::new();
+        let runtime = Arc::new(RuntimeHandle::new(runtime_ptr));
 
         Ok(Self {
-            runtime_ptr,
+            runtime,
             callback_manager,
         })
     }
@@ -234,10 +450,8 @@ impl BamlClient {
         function_name: &str,
         context: BamlContext,
     ) -> BamlResult<FunctionResult> {
-        // Serialize the arguments to JSON for the C FFI
-        let encoded_args = serde_json::to_string(&context.args).map_err(|e| {
-            BamlError::invalid_argument(format!("Failed to serialize arguments: {}", e))
-        })?;
+        self.bind_collectors(&context)?;
+        let encoded_args = Self::encode_function_arguments(&context)?;
 
         // Get a unique ID for this call
         let call_id = self.callback_manager.get_next_id();
@@ -249,40 +463,37 @@ impl BamlClient {
         // Convert strings to C strings
         let function_name_c = std::ffi::CString::new(function_name)
             .map_err(|e| BamlError::invalid_argument(format!("Invalid function_name: {}", e)))?;
-        let encoded_args_c = std::ffi::CString::new(encoded_args.clone())
-            .map_err(|e| BamlError::invalid_argument(format!("Invalid encoded_args: {}", e)))?;
-        
         let result_ptr = ffi::call_function_from_c(
-            self.runtime_ptr,
+            self.runtime.ptr(),
             function_name_c.as_ptr(),
-            encoded_args_c.as_ptr(),
+            encoded_args.as_ptr() as *const c_char,
             encoded_args.len(),
-            call_id as u32,
+            call_id,
         );
-        
+
         // Check if the call failed (non-null pointer indicates error)
         if !result_ptr.is_null() {
-            return Err(BamlError::Runtime(anyhow::anyhow!("FFI function call failed")));
+            self.callback_manager.cancel_call(call_id);
+            let message = take_error_message(result_ptr);
+            return Err(make_runtime_error(message));
         }
 
         // Wait for the callback result
-        let callback_result = callback_receiver
-            .await
-            .map_err(|_| BamlError::Runtime(anyhow::anyhow!("Callback channel closed")))?;
+        let callback_result = match callback_receiver.await {
+            Ok(result) => result,
+            Err(_) => {
+                self.callback_manager.cancel_call(call_id);
+                return Err(make_runtime_error(
+                    "Callback channel closed before response".to_string(),
+                ));
+            }
+        };
 
-        if callback_result.success {
-            // Parse the JSON response into a BamlValue
-            let baml_value: BamlValue =
-                serde_json::from_str(&callback_result.data).map_err(|e| {
-                    BamlError::deserialization(format!("Failed to parse result: {}", e))
-                })?;
-
-            Ok(FunctionResult::new(baml_value, call_id.to_string()))
-        } else {
-            Err(BamlError::Runtime(anyhow::anyhow!(
-                "Function call failed: {}",
-                callback_result.data
-            )))
+        match callback_result {
+            CallbackResult::Success { value } => {
+                Ok(FunctionResult::new(value, call_id.to_string()))
+            }
+            CallbackResult::Error { error } => Err(error),
         }
     }
 
@@ -298,12 +509,31 @@ impl BamlClient {
         let stream = self
             .call_function_stream_raw(function_name, context)
             .await?;
-        Ok(stream.map(|result| match result {
-            Ok(stream_state) => match stream_state {
-                StreamState::Partial(value) => T::from_baml_value(value).map(StreamState::Partial),
-                StreamState::Final(value) => T::from_baml_value(value).map(StreamState::Final),
-            },
-            Err(e) => Err(e),
+        let mut last_value: Option<crate::types::BamlValue> = None;
+        Ok(stream.filter_map(move |result| {
+            let output = match result {
+                Ok(stream_state) => match stream_state {
+                    StreamState::Partial(value) => {
+                        let merged = crate::types::overlay_baml_value(last_value.clone(), value);
+                        if crate::types::baml_value_has_data(&merged) {
+                            last_value = Some(merged.clone());
+                            Some(crate::types::with_partial_deserialization(|| {
+                                T::from_baml_value(merged).map(StreamState::Partial)
+                            }))
+                        } else {
+                            last_value = Some(merged);
+                            None
+                        }
+                    }
+                    StreamState::Final(value) => {
+                        let merged = crate::types::overlay_baml_value(last_value.clone(), value);
+                        last_value = None;
+                        Some(T::from_baml_value(merged).map(StreamState::Final))
+                    }
+                },
+                Err(e) => Some(Err(e)),
+            };
+            futures::future::ready(output)
         }))
     }
 
@@ -313,10 +543,8 @@ impl BamlClient {
         function_name: &str,
         context: BamlContext,
     ) -> BamlResult<BamlStream> {
-        // Serialize the arguments to JSON for the C FFI
-        let encoded_args = serde_json::to_string(&context.args).map_err(|e| {
-            BamlError::invalid_argument(format!("Failed to serialize arguments: {}", e))
-        })?;
+        self.bind_collectors(&context)?;
+        let encoded_args = Self::encode_function_arguments(&context)?;
 
         // Get a unique ID for this call
         let call_id = self.callback_manager.get_next_id();
@@ -328,20 +556,19 @@ impl BamlClient {
         // Convert strings to C strings
         let function_name_c = std::ffi::CString::new(function_name)
             .map_err(|e| BamlError::invalid_argument(format!("Invalid function_name: {}", e)))?;
-        let encoded_args_c = std::ffi::CString::new(encoded_args.clone())
-            .map_err(|e| BamlError::invalid_argument(format!("Invalid encoded_args: {}", e)))?;
-        
         let result_ptr = ffi::call_function_stream_from_c(
-            self.runtime_ptr,
+            self.runtime.ptr(),
             function_name_c.as_ptr(),
-            encoded_args_c.as_ptr(),
+            encoded_args.as_ptr() as *const c_char,
             encoded_args.len(),
-            call_id as u32,
+            call_id,
         );
-        
+
         // Check if the call failed (non-null pointer indicates error)
         if !result_ptr.is_null() {
-            return Err(BamlError::Runtime(anyhow::anyhow!("FFI streaming function call failed")));
+            self.callback_manager.cancel_stream(call_id);
+            let message = take_error_message(result_ptr);
+            return Err(make_runtime_error(message));
         }
 
         Ok(BamlStream::new(stream_receiver))
@@ -349,16 +576,81 @@ impl BamlClient {
 
     /// Get the runtime pointer (for advanced use cases)
     pub fn runtime_ptr(&self) -> *const c_void {
-        self.runtime_ptr
+        self.runtime.ptr()
     }
-}
 
-impl Drop for BamlClient {
-    fn drop(&mut self) {
-        // Clean up the runtime pointer when the client is dropped
-        if !self.runtime_ptr.is_null() {
-            let _ = ffi::destroy_baml_runtime(self.runtime_ptr);
+    fn bind_collectors(&self, context: &BamlContext) -> BamlResult<()> {
+        for collector in &context.collectors {
+            collector.bind_runtime(self.runtime.clone())?;
         }
+        Ok(())
+    }
+
+    fn encode_function_arguments(context: &BamlContext) -> BamlResult<Vec<u8>> {
+        if context.client_registry.is_some() {
+            return Err(BamlError::Configuration(
+                "Client registry overrides are not yet supported in the Rust client".to_string(),
+            ));
+        }
+
+        let mut kwargs = Vec::with_capacity(context.args.len());
+        for (key, value) in context.args.iter() {
+            kwargs.push(CffiMapEntry {
+                key: key.clone(),
+                value: Some(encode_baml_value(value)?),
+            });
+        }
+
+        let mut env = Vec::with_capacity(context.env_vars.len());
+        for (key, value) in context.env_vars.iter() {
+            env.push(CffiEnvVar {
+                key: key.clone(),
+                value: value.clone(),
+            });
+        }
+
+        let collectors = context
+            .collectors
+            .iter()
+            .map(|collector| collector.as_ref().to_cffi())
+            .collect();
+
+        let type_builder = context
+            .type_builder
+            .as_ref()
+            .map(|builder| builder.to_cffi());
+
+        let mut tags = Vec::with_capacity(context.tags.len());
+        for (key, value) in context.tags.iter() {
+            tags.push(CffiMapEntry {
+                key: key.clone(),
+                value: Some(CffiValueHolder {
+                    value: Some(cffi_value_holder::Value::StringValue(value.clone())),
+                    r#type: None,
+                }),
+            });
+        }
+
+        let args = CffiFunctionArguments {
+            kwargs,
+            client_registry: None,
+            env,
+            collectors,
+            type_builder,
+            tags,
+        };
+
+        let mut buffer = Vec::new();
+        args.encode(&mut buffer).map_err(|err| {
+            BamlError::Serialization(format!("Failed to encode function arguments: {err}"))
+        })?;
+
+        Ok(buffer)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn encode_context_for_test(context: &BamlContext) -> BamlResult<Vec<u8>> {
+        Self::encode_function_arguments(context)
     }
 }
 
@@ -377,33 +669,23 @@ impl Stream for BamlStream {
     type Item = BamlResult<StreamState<BamlValue>>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
-        match self.receiver.poll_recv(cx) {
-            Poll::Ready(Some(event)) => {
-                if event.success {
-                    // Parse the JSON response into a BamlValue
-                    match serde_json::from_str::<BamlValue>(&event.data) {
-                        Ok(baml_value) => {
-                            let stream_state = if event.is_final {
-                                StreamState::Final(baml_value)
-                            } else {
-                                StreamState::Partial(baml_value)
-                            };
-                            Poll::Ready(Some(Ok(stream_state)))
-                        }
-                        Err(e) => Poll::Ready(Some(Err(BamlError::deserialization(format!(
-                            "Failed to parse stream event: {}",
-                            e
-                        ))))),
-                    }
-                } else {
-                    Poll::Ready(Some(Err(BamlError::Runtime(anyhow::anyhow!(
-                        "Stream event failed: {}",
-                        event.data
-                    )))))
+        loop {
+            match self.receiver.poll_recv(cx) {
+                Poll::Ready(Some(StreamEvent::Tick)) => continue,
+                Poll::Ready(Some(StreamEvent::Success { value, is_final })) => {
+                    let state = if is_final {
+                        StreamState::Final(value)
+                    } else {
+                        StreamState::Partial(value)
+                    };
+                    return Poll::Ready(Some(Ok(state)));
                 }
+                Poll::Ready(Some(StreamEvent::Error { error })) => {
+                    return Poll::Ready(Some(Err(error)));
+                }
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
             }
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
         }
     }
 }

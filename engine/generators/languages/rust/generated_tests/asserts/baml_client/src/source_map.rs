@@ -11,5 +11,37 @@
 // You can install baml-cli with:
 //  $ cargo install baml-cli
 
-// Source file mapping
-// TODO: Implement source map functionality
+use std::collections::HashMap;
+
+pub fn baml_source_files() -> HashMap<&'static str, &'static str> {
+    let mut map = HashMap::new();
+    map.insert(
+        "baml_src/main.baml",
+        r###"class Person {
+    name string @assert(valid_name, {{ this|length >= 2 }})
+    age int @assert(valid_age, {{ this >= 0 }})
+
+    @@assert(not_minor, {{
+        this.age >= 18
+    }})
+}
+
+function PersonTest() -> Person {
+    client "openai/gpt-4o"
+    prompt #"
+        Fake random information about an adult person.
+
+        {{ ctx.output_format }}
+    "#
+}
+
+test PersonTest {
+    functions [PersonTest]
+    args {
+        output_format: "json"
+    }
+}
+"###,
+    );
+    map
+}

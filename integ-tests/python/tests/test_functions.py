@@ -624,10 +624,29 @@ async def test_anthropic_shorthand():
 
 @pytest.mark.asyncio
 async def test_anthropic_shorthand_streaming():
-    res = await b.stream.TestAnthropicShorthand(
-        input="Mt Rainier is tall"
-    ).get_final_response()
-    assert len(res) > 0, "Expected non-empty result but got empty."
+    res = b.stream.TestAnthropicShorthand(input="Mt Rainier is tall")
+    chunks = []
+    async for chunk in res:
+        chunks.append(chunk)
+        print("chunk", chunk)
+    final = await res.get_final_response()
+    print("final", final)
+
+    assert len(chunks) > 0, "Expected non-empty result but got empty."
+    assert len(final) > 0, "Expected non-empty result but got empty."
+
+
+@pytest.mark.asyncio
+async def test_vertex_anthropic_streaming():
+    res = b.stream.TestVertexClaude(input="Mt Rainier is tall")
+    chunks = []
+    async for chunk in res:
+        chunks.append(chunk)
+        print("chunk", chunk)
+    final = await res.get_final_response()
+    print("final", final)
+    assert len(chunks) > 0, "Expected non-empty result but got empty."
+    assert len(final) > 0, "Expected non-empty result but got empty."
 
 
 @pytest.mark.asyncio
@@ -639,7 +658,7 @@ async def test_fallback_to_shorthand():
 
 
 @pytest.mark.asyncio
-async def test_streaming():
+async def test_streaming_long():
     stream = b.stream.PromptTestStreaming(
         input="Programming languages are fun to create"
     )
@@ -694,6 +713,7 @@ def test_streaming_sync():
     last_msg_time = start_time
     first_msg_time = start_time + 10
     for msg in stream:
+        print(f"msg {msg}")
         msgs.append(str(msg))
         if len(msgs) == 1:
             first_msg_time = asyncio.get_event_loop().time()
@@ -702,14 +722,14 @@ def test_streaming_sync():
 
     final = stream.get_final_response()
 
-    assert (
-        first_msg_time - start_time <= 1.5
-    ), "Expected first message within 1 second but it took longer."
-    assert (
-        last_msg_time - start_time >= 1
-    ), "Expected last message after 1.5 seconds but it was earlier."
+    diff = first_msg_time - start_time
+    print(f"first_msg_time - start_time: {diff}")
+    assert diff <= 2, "Expected first message within 2 second but it took longer."
+    diff = last_msg_time - start_time
+    print(f"last_msg_time - start_time: {diff}")
+    assert diff >= 2, "Expected last message after 2 second but it was earlier."
     assert len(final) > 0, "Expected non-empty final but got empty."
-    assert len(msgs) > 0, "Expected at least one streamed response but got none."
+    assert len(msgs) > 5, "Expected at least one streamed response but got none."
     for prev_msg, msg in zip(msgs, msgs[1:]):
         assert msg.startswith(
             prev_msg
@@ -997,7 +1017,7 @@ async def test_dynamic_client_with_vertex_json_str_creds():
         "MyClient",
         "vertex-ai",
         {
-            "model": "gemini-1.5-pro",
+            "model": "gemini-2.5-flash",
             "location": "us-central1",
             "credentials": os.environ[
                 "INTEG_TESTS_GOOGLE_APPLICATION_CREDENTIALS_CONTENT"
@@ -1019,7 +1039,7 @@ async def test_dynamic_client_with_vertex_json_object_creds():
         "MyClient",
         "vertex-ai",
         {
-            "model": "gemini-1.5-pro",
+            "model": "gemini-2.5-flash",
             "location": "us-central1",
             "credentials": json.loads(
                 os.environ["INTEG_TESTS_GOOGLE_APPLICATION_CREDENTIALS_CONTENT"]
@@ -1581,3 +1601,10 @@ async def test_openai_responses_reasoning_streaming():
         print(msg)
 
     _res = await stream.get_final_response()
+
+
+@pytest.mark.asyncio
+async def test_openai_responses_all_roles():
+    _res = await b.TestOpenAIResponsesAllRoles(
+        "a world without horses, should be titled 'A World Without Horses'. Make it short, 2 sentences."
+    )

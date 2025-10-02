@@ -17,24 +17,23 @@ export const bamlConfigSchema = z
     syncExtensionToGeneratorVersion: z
       .enum(['auto', 'never', 'always'])
       .default('auto'),
+    featureFlags: z.array(z.enum(['beta', 'display_all_warnings'])).default([]),
   })
   .partial();
 type BamlConfig = z.infer<typeof bamlConfigSchema>;
 
-export const BAML_CONFIG_SINGLETON: {
+export type BamlConfigAtom = {
   config: BamlConfig | null;
   cliVersion: string | null;
-} = {
+};
+export const BAML_CONFIG_SINGLETON: BamlConfigAtom = {
   config: null,
   cliVersion: null,
 };
 
 export const refreshBamlConfigSingleton = () => {
   try {
-    console.log('getting config');
-
     const configResponse = workspace.getConfiguration('baml');
-    console.log('configResponse ' + JSON.stringify(configResponse, null, 2));
     BAML_CONFIG_SINGLETON.config = bamlConfigSchema.parse(configResponse);
     return BAML_CONFIG_SINGLETON;
   } catch (e: any) {

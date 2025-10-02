@@ -1,6 +1,6 @@
 //! Instruction set and bytecode representation.
 
-use crate::vm::Value;
+use crate::{types::Value, GlobalIndex, ObjectIndex};
 
 /// Individual bytecode instruction.
 ///
@@ -58,13 +58,13 @@ pub enum Instruction {
     /// Note that functions are also globals and can be passed around and stored
     /// in local variables, so we need to load their name in the stack before we
     /// call the function.
-    LoadGlobal(usize),
+    LoadGlobal(GlobalIndex),
 
     /// Store a value in a global variable.
     ///
     /// Format: `STORE_GLOBAL i` where `i` is the index of the global variable
     /// in the [`crate::Vm::globals`] array.
-    StoreGlobal(usize),
+    StoreGlobal(GlobalIndex),
 
     /// Load a field of an object.
     ///
@@ -82,6 +82,13 @@ pub enum Instruction {
     ///
     /// Format: `POP n` where `n` is the number of values to pop.
     Pop(usize),
+
+    /// Copy the i-th value from the top of the stack to the top.
+    ///
+    /// Format: `COPY i` where `i` is the offset from the top of the stack.
+    /// `COPY 0` copies the top element (duplicates it).
+    /// `COPY 1` copies the second element from the top.
+    Copy(usize),
 
     /// End a nested block and put the result value on top of the stack.
     ///
@@ -136,17 +143,48 @@ pub enum Instruction {
     /// executed.
     AllocArray(usize),
 
+    /// Builds a map and allocates it on the heap.
+    ///
+    /// Format `ALLOC_MAP n` where `n` is the number of entries in the map.
+    /// `n` keys are popped first and then `n` values are popped after that.
+    /// In total that's 2n stack required before the instruction is executed.
+    AllocMap(usize),
+
     /// Loads an element from an array at a given index.
     ///
     /// Format: `LOAD_ARRAY_ELEMENT` where the stack contains [array, index] and
     /// the result is the element at that index.
     LoadArrayElement,
 
+    /// Loads a value from a map at a given key.
+    ///
+    /// Format: `LOAD_MAP_ELEMENT` where the stack contains [map, key] and
+    /// the result is the value at that key.
+    LoadMapElement,
+
+    /// Stores a value into an array at a given index.
+    ///
+    /// Format: `STORE_ARRAY_ELEMENT` where the stack contains [array, index, value]
+    /// and stores the value at array[index].
+    StoreArrayElement,
+
+    /// Stores a value into a map at a given key.
+    ///
+    /// Format: `STORE_MAP_ELEMENT` where the stack contains [map, key, value]
+    /// and stores the value at map[key].
+    StoreMapElement,
+
     /// Builds an instance of a class and allocates it on the heap.
     ///
     /// Format: `ALLOC_INSTANCE i` where `i` is the index of the class in the
     /// [`crate::Vm::objects`] array.
-    AllocInstance(usize),
+    AllocInstance(ObjectIndex),
+
+    /// Builds a variant of an enum and allocates it on the heap.
+    ///
+    /// Format: `ALLOC_VARIANT i` where `i` is the index of the enum in the
+    /// [`crate::Vm::objects`] array.
+    AllocVariant(ObjectIndex),
 
     /// Creates a pending future, pushes it on the stack and notifies embedder.
     ///
@@ -213,6 +251,7 @@ pub enum CmpOp {
     LtEq,
     Gt,
     GtEq,
+    InstanceOf,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -247,6 +286,7 @@ impl std::fmt::Display for CmpOp {
             CmpOp::LtEq => "<=",
             CmpOp::Gt => ">",
             CmpOp::GtEq => ">=",
+            CmpOp::InstanceOf => "instanceof",
         })
     }
 }
@@ -271,6 +311,7 @@ impl std::fmt::Display for Instruction {
             Instruction::LoadField(i) => write!(f, "LOAD_FIELD {i}"),
             Instruction::StoreField(i) => write!(f, "STORE_FIELD {i}"),
             Instruction::Pop(n) => write!(f, "POP {n}"),
+            Instruction::Copy(i) => write!(f, "COPY {i}"),
             Instruction::PopReplace(n) => write!(f, "POP_REPLACE {n}"),
             Instruction::Jump(o) => write!(f, "JUMP {o:+}"),
             Instruction::JumpIfFalse(o) => write!(f, "JUMP_IF_FALSE {o:+}"),
@@ -279,12 +320,17 @@ impl std::fmt::Display for Instruction {
             Instruction::UnaryOp(op) => write!(f, "UNARY_OP {op}"),
             Instruction::AllocArray(n) => write!(f, "ALLOC_ARRAY {n}"),
             Instruction::LoadArrayElement => f.write_str("LOAD_ARRAY_ELEMENT"),
+            Instruction::LoadMapElement => f.write_str("LOAD_MAP_ELEMENT"),
+            Instruction::StoreArrayElement => f.write_str("STORE_ARRAY_ELEMENT"),
+            Instruction::StoreMapElement => f.write_str("STORE_MAP_ELEMENT"),
             Instruction::AllocInstance(i) => write!(f, "ALLOC_INSTANCE {i}"),
+            Instruction::AllocVariant(i) => write!(f, "ALLOC_VARIANT {i}"),
             Instruction::DispatchFuture(i) => write!(f, "DISPATCH_FUTURE {i}"),
             Instruction::Await => f.write_str("AWAIT"),
             Instruction::Call(n) => write!(f, "CALL {n}"),
             Instruction::Return => f.write_str("RETURN"),
             Instruction::Assert => f.write_str("ASSERT"),
+            Instruction::AllocMap(n) => write!(f, "ALLOC_MAP {n}"),
         }
     }
 }

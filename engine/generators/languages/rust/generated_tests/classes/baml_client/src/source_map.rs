@@ -11,5 +11,42 @@
 // You can install baml-cli with:
 //  $ cargo install baml-cli
 
-// Source file mapping
-// TODO: Implement source map functionality
+use std::collections::HashMap;
+
+pub fn baml_source_files() -> HashMap<&'static str, &'static str> {
+    let mut map = HashMap::new();
+    map.insert(
+        "baml_src/main.baml",
+        r###"class SimpleClass {
+    digits int
+    words string  @stream.with_state
+}
+
+function MakeSimpleClass() -> SimpleClass {
+    client "openai/gpt-4o-mini"
+    prompt #"
+        {{ ctx.output_format }}
+    "#
+}
+
+function ConsumeSimpleClass(item: SimpleClass) -> SimpleClass {
+    client "openai/gpt-4o-mini"
+    prompt #"
+        Return back to me verbatim:
+
+        {{ item }}
+    "#
+}
+
+test MakeSimpleClassTest {
+    functions [MakeSimpleClass]
+    args {
+        class_1:
+            digits: 123
+            words: "hello"
+    }
+}
+"###,
+    );
+    map
+}

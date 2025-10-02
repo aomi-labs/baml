@@ -1,0 +1,9 @@
+use std::collections::HashMap;
+
+pub fn baml_source_files() -> HashMap<&'static str, &'static str> {
+    let mut map = HashMap::new();
+{%- for file in files %}
+    map.insert({{ file.path_literal }}, r###"{{ file.contents | safe }}"###);
+{%- endfor %}
+    map
+}

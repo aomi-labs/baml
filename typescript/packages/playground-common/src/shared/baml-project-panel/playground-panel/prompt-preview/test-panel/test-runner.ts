@@ -1,6 +1,5 @@
 import type { WasmFunctionResponse, WasmSpan, WasmTestResponse } from '@gloo-ai/baml-schema-wasm-web'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { findMediaFile } from '../media-utils'
 import { ctxAtom, runtimeAtom, wasmAtom } from '../../../atoms';
 import { useAtomCallback } from 'jotai/utils'
 import { vscode } from '../../../vscode'
@@ -11,21 +10,13 @@ import {
   areTestsRunningAtom,
   selectedTestcaseAtom,
   selectedFunctionAtom,
+  currentAbortControllerAtom,
+  flashRangesAtom,
 } from '../../atoms'
 import { isParallelTestsEnabledAtom, testHistoryAtom, selectedHistoryIndexAtom, type TestHistoryRun } from './atoms'
 import { isClientCallGraphEnabledAtom } from '../../preview-toolbar'
 import { apiKeysAtom } from '../../../../../components/api-keys-dialog/atoms';
 
-// Helper function to clear highlights if in VSCode
-const clearHighlights = () => {
-  try {
-    vscode.postMessage({
-      command: 'clearHighlights',
-    })
-  } catch (e) {
-    console.error('Failed to clear highlights in VSCode:', e)
-  }
-}
 
 // TODO: use a single hook for both run and parallel run
 const useRunTests = (maxBatchSize = 5) => {
@@ -36,9 +27,14 @@ const useRunTests = (maxBatchSize = 5) => {
   const setSelectedFunction = useSetAtom(selectedFunctionAtom)
   const setIsClientCallGraphEnabled = useSetAtom(isClientCallGraphEnabledAtom)
   const apiKeys = useAtomValue(apiKeysAtom)
+  const setFlashRanges = useSetAtom(flashRangesAtom)
   const runTests = useAtomCallback(
     useCallback(
       async (get, set, tests: { functionName: string; testName: string }[]) => {
+        // Create a fresh abort controller for this test run
+        const controller = new AbortController()
+        set(currentAbortControllerAtom, controller)
+
         // Create a new history run
         const historyRun: TestHistoryRun = {
           timestamp: Date.now(),
@@ -82,9 +78,6 @@ const useRunTests = (maxBatchSize = 5) => {
         }
 
         const runTest = async (test: { functionName: string; testName: string }) => {
-          console.log('runTest', test)
-          console.log('apiKeys', apiKeys)
-
           // TEMPORARY DEBUGGING HELPER:
           // console.log("Try to set flashing regions")
           // try {
@@ -96,14 +89,11 @@ const useRunTests = (maxBatchSize = 5) => {
           //   console.error('Failed to set flashing regions in VSCode:', e)
           // }
 
-          vscode.postMessage({
-            command: 'telemetry',
-            meta: {
-              action: 'run_tests',
-              data: {
-                num_tests: tests.length,
-                parallel: false,
-              },
+          vscode.sendTelemetry({
+            action: 'run_tests',
+            data: {
+              num_tests: tests.length,
+              parallel: false,
             },
           })
 
@@ -115,20 +105,24 @@ const useRunTests = (maxBatchSize = 5) => {
                 message: 'Missing required dependencies. Try reloading the playground.',
               })
               console.error('Missing required dependencies. Try reloading the playground.')
-              clearHighlights() // Clear highlights on error
               return
             }
 
             const startTime = performance.now()
             setState(test, { status: 'running' })
 
+            console.warn('BAML Cancel: Passing abort signal to run_test_with_expr_events', {
+              testName: testCase.tc.name,
+              hasSignal: !!controller.signal,
+              signalAborted: controller.signal.aborted
+            })
             const result = await testCase.fn.run_test_with_expr_events(
               rt,
               testCase.tc.name,
               (partial: WasmFunctionResponse) => {
                 setState(test, { status: 'running', response: partial })
               },
-              findMediaFile,
+              vscode.loadMediaFile,
               (spans: WasmSpan[]) => {
                 // Send spans to VSCode for highlighting if we're in the VSCode environment
                 const spans_to_send = spans.map((span) => ({
@@ -140,16 +134,21 @@ const useRunTests = (maxBatchSize = 5) => {
                 }))
                 console.log('spans_to_send: ', spans_to_send)
                 try {
-                  vscode.postMessage({
-                    command: 'set_flashing_regions',
-                    content: { spans: spans_to_send },
-                  })
+                  vscode.setFlashingRegions(spans_to_send)
+                  setFlashRanges(spans_to_send.map((span) => ({
+                    filePath: span.file_path,
+                    startLine: span.start_line,
+                    startCol: span.start,
+                    endLine: span.end_line,
+                    endCol: span.end,
+                  })))
                 } catch (e) {
                   console.error('Failed to send spans to VSCode:', e)
                 }
               },
               // TODO this needs to be moved down cause its wrong param.
               apiKeys,
+              controller.signal, // Pass abort signal
             )
             console.log('result', result)
 
@@ -171,26 +170,33 @@ const useRunTests = (maxBatchSize = 5) => {
               response_status: responseStatusMap[response_status] || 'error',
               latency_ms: endTime - startTime,
             })
-
-            // Clear highlights when test is completed, whether success or failure
-            clearHighlights()
           } catch (e) {
             console.log('test error!')
             console.error(e)
-            clearHighlights() // Clear highlights on error
-            setState(test, {
-              status: 'error',
-              message: e instanceof Error ? e.message : 'Unknown error',
-            })
+
+            // Check if this is an abort error
+            if (e instanceof Error && (e.name === 'AbortError' || e.message?.includes('BamlAbortError'))) {
+              setState(test, {
+                status: 'error',
+                message: 'Test execution was cancelled by user',
+              })
+            } else {
+              setState(test, {
+                status: 'error',
+                message: e instanceof Error ? e.message : 'Unknown error',
+              })
+            }
           }
         }
 
         const run = async () => {
+          console.warn('BAML Cancel: run() function started, tests:', tests)
           // Create batches of tests to run
           const batches: { functionName: string; testName: string }[][] = []
           for (let i = 0; i < tests.length; i += maxBatchSize) {
             batches.push(tests.slice(i, i + maxBatchSize))
           }
+          console.warn('BAML Cancel: Created batches:', batches)
 
           if (tests.length == 0) {
             console.error('No tests found')
@@ -211,19 +217,26 @@ const useRunTests = (maxBatchSize = 5) => {
           }
 
           // Run each batch
+          console.warn('BAML Cancel: Starting to run batches, batch count:', batches.length)
           for (const batch of batches) {
+            console.warn('BAML Cancel: Processing batch with tests:', batch)
             // TODO: parallelize when we fix wasm issues with runtime undefined after multiple runs
             for (const test of batch) {
+              console.warn('BAML Cancel: About to run test:', test)
               setState(test, { status: 'queued' })
               await runTest(test)
+              console.warn('BAML Cancel: Finished running test:', test)
             }
           }
         }
 
+        console.warn('BAML Cancel: About to set areTestsRunningAtom to true and call run()')
         set(areTestsRunningAtom, true)
+        console.warn('BAML Cancel: Calling run() now')
         await run().finally(() => {
+          console.warn('BAML Cancel: Tests completed, cleaning up')
           set(areTestsRunningAtom, false)
-          clearHighlights() // Clear highlights when all tests are done
+          set(currentAbortControllerAtom, null) // Clean up abort controller
         })
       },
       [maxBatchSize, rt, ctx, wasm, apiKeys],
@@ -248,6 +261,12 @@ const useParallelRunTests = (maxBatchSize = 5) => {
         if (get(areTestsRunningAtom)) {
           return
         }
+
+        // Create a fresh abort controller for this test run
+        const controller = new AbortController()
+        console.warn('BAML Cancel: Created new AbortController for test run')
+        set(currentAbortControllerAtom, controller)
+        console.warn('BAML Cancel: AbortController stored in atom')
 
         // Create a new history run
         const historyRun: TestHistoryRun = {
@@ -315,14 +334,11 @@ const useParallelRunTests = (maxBatchSize = 5) => {
             console.error("Invalid test found, so won't select this test case in the prompt preview", tests[0])
           }
 
-          vscode.postMessage({
-            command: 'telemetry',
-            meta: {
-              action: 'run_tests',
-              data: {
-                num_tests: tests.length,
-                parallel: true,
-              },
+          vscode.sendTelemetry({
+            action: 'run_tests',
+            data: {
+              num_tests: tests.length,
+              parallel: true,
             },
           })
 
@@ -361,8 +377,9 @@ const useParallelRunTests = (maxBatchSize = 5) => {
                   { status: 'running', response: partial },
                 )
               },
-              findMediaFile,
+              vscode.loadMediaFile,
               apiKeys,
+              controller.signal, // Now supported!
             )
 
             const endTime = performance.now()
@@ -402,6 +419,7 @@ const useParallelRunTests = (maxBatchSize = 5) => {
             })
           } finally {
             set(areTestsRunningAtom, false)
+            set(currentAbortControllerAtom, null) // Clean up abort controller
           }
         }
 
@@ -418,14 +436,35 @@ export const useRunBamlTests = () => {
   const { setRunningTests } = useRunTests()
   const { setParallelTests } = useParallelRunTests()
   const isParallelTestsEnabled = useAtomValue(isParallelTestsEnabledAtom)
+  const currentAbortController = useAtomValue(currentAbortControllerAtom)
+  const setCurrentAbortController = useSetAtom(currentAbortControllerAtom)
+  const setAreTestsRunning = useSetAtom(areTestsRunningAtom)
 
   const runTests = (tests: { functionName: string; testName: string }[]) => {
+    console.warn('BAML Cancel: runTests called with', tests.length, 'tests, parallel:', isParallelTestsEnabled)
     if (isParallelTestsEnabled) {
+      console.warn('BAML Cancel: Calling setParallelTests')
       setParallelTests(tests)
     } else {
+      console.warn('BAML Cancel: Calling setRunningTests')
       setRunningTests(tests)
     }
+    console.warn('BAML Cancel: runTests finished calling set function')
   }
 
-  return runTests
+  const cancelTests = useCallback(() => {
+    console.warn('BAML Cancel: cancelTests called')
+    // Abort the current controller if it exists
+    if (currentAbortController) {
+      console.warn('BAML Cancel: Found active abort controller, calling abort()')
+      currentAbortController.abort()
+      console.warn('BAML Cancel: abort() called, clearing controller')
+      setCurrentAbortController(null)
+      setAreTestsRunning(false)
+    } else {
+      console.warn('BAML Cancel: No active abort controller found')
+    }
+  }, [currentAbortController, setCurrentAbortController, setAreTestsRunning])
+
+  return { runTests, cancelTests }
 }

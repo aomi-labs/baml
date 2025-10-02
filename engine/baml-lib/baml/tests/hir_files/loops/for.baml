@@ -1,7 +1,7 @@
-fn Sum(xs: int[]) -> int {
-	let mut result = 0;
+function Sum(xs: int[]) -> int {
+	let result = 0;
 
-	for x in xs {
+	for (let x in xs) {
 		result += x;
 	}
 
@@ -9,11 +9,12 @@ fn Sum(xs: int[]) -> int {
 }
 
 // function Sum(xs) {
-//   var result = 0;
+//   let result = 0;
 //   for x in xs {
 //   result += x;
 //   }
-//   return result;
+//
+//   result
 // }
 //
 // class std::Request {

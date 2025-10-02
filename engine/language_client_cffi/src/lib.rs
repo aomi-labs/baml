@@ -3,8 +3,10 @@ mod ctypes;
 mod ffi;
 mod panic;
 mod raw_ptr_wrapper;
+pub mod rust;
 
 // Explicit API exports - this is the complete public C FFI API
+pub use ctypes::DecodeFromBuffer;
 pub use ffi::{
     callbacks::{register_callbacks, CallbackFn, OnTickCallbackFn},
     functions::{call_function_from_c, call_function_parse_from_c, call_function_stream_from_c},

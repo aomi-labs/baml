@@ -19,3 +19,4 @@ generators-ruby = { path = "../../languages/ruby" }
 generators-rust = { path = "../../languages/rust" }
 internal-baml-core.workspace = true
 indexmap.workspace = true
+semver.workspace = true

@@ -11,7 +11,7 @@
 // You can install baml-cli with:
 //  $ cargo install baml-cli
 
-use crate::types::*;
+use crate::{source_map, types::*};
 use baml_client_rust::{BamlClient as CoreBamlClient, BamlClientBuilder, BamlContext, BamlResult};
 use futures::Stream;
 
@@ -24,7 +24,57 @@ pub struct BamlClient {
 impl BamlClient {
     /// Create a new BAML client with default configuration
     pub fn new() -> BamlResult<Self> {
-        let client = CoreBamlClient::from_env()?;
+        let mut env_vars: std::collections::HashMap<String, String> = std::env::vars().collect();
+        env_vars
+            .entry("BAML_SRC".to_string())
+            .or_insert_with(|| "./baml_src".to_string());
+
+        // Prefer local baml_src during generated tests
+        let mut last_error: Option<baml_client_rust::BamlError> = None;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let local = std::path::Path::new("baml_src");
+            if local.exists() {
+                match CoreBamlClient::from_directory(local, env_vars.clone()) {
+                    Ok(client) => return Ok(Self { client }),
+                    Err(err) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("BamlClient::from_directory failed: {err}");
+                        last_error = Some(err);
+                    }
+                }
+            }
+        }
+
+        // Fall back to embedded source map
+        let embedded_files: std::collections::HashMap<String, String> =
+            source_map::baml_source_files()
+                .into_iter()
+                .map(|(path, contents)| (path.to_string(), contents.to_string()))
+                .collect();
+        if !embedded_files.is_empty() {
+            match CoreBamlClient::from_file_content("./baml_src", &embedded_files, env_vars.clone())
+            {
+                Ok(client) => return Ok(Self { client }),
+                Err(err) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("BamlClient::from_file_content failed: {err}");
+                    last_error = Some(err);
+                }
+            }
+        }
+
+        let client = match CoreBamlClient::from_env() {
+            Ok(client) => client,
+            Err(err) => {
+                #[cfg(debug_assertions)]
+                if let Some(prev) = &last_error {
+                    eprintln!("BamlClient::from_env failed after embedded attempts: {prev}");
+                }
+                return Err(err);
+            }
+        };
         Ok(Self { client })
     }
 
@@ -62,6 +112,9 @@ impl BamlClient {
         let mut context = BamlContext::new();
         context = context.set_arg("x", x)?;
 
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
+
         self.client.call_function("Foo", context).await
     }
 
@@ -78,6 +131,9 @@ impl BamlClient {
         let mut context = BamlContext::new();
         context = context.set_arg("x", x)?;
 
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
+
         self.client.call_function_stream("Foo", context).await
     }
 }
@@ -86,6 +142,9 @@ impl BamlClient {
     pub async fn json_input(&self, x: crate::types::JSON) -> BamlResult<crate::types::JSON> {
         let mut context = BamlContext::new();
         context = context.set_arg("x", x)?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client.call_function("JsonInput", context).await
     }
@@ -102,6 +161,9 @@ impl BamlClient {
     > {
         let mut context = BamlContext::new();
         context = context.set_arg("x", x)?;
+
+        // Include environment variables in the context
+        context = context.set_env_vars(std::env::vars());
 
         self.client.call_function_stream("JsonInput", context).await
     }

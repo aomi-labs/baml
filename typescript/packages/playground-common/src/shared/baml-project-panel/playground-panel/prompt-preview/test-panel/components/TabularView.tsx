@@ -1,3 +1,4 @@
+'use client';
 import { Label } from '@baml/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@baml/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@baml/ui/table'
@@ -116,7 +117,7 @@ const ResponseContent = ({
 
 export const TabularView: React.FC<TabularViewProps> = ({ currentRun }) => {
   const [config, setConfig] = useAtom(tabularViewConfigAtom)
-  const runBamlTests = useRunBamlTests()
+  const { runTests: runBamlTests } = useRunBamlTests()
   const [selectedItem, setSelectedItem] = useAtom(selectedItemAtom)
 
   const toggleConfig = (key: keyof typeof config) => {
@@ -138,13 +139,6 @@ export const TabularView: React.FC<TabularViewProps> = ({ currentRun }) => {
     [selectedItem],
   )
   const tc = useAtomValue(testAtom)
-
-  const createSpan = (span: { start: number; end: number; file_path: string; start_line: number }) => ({
-    start: span.start,
-    end: span.end,
-    source_file: span.file_path,
-    value: `${span.file_path.split('/').pop() ?? '<file>.baml'}:${span.start_line + 1}`,
-  })
 
   const selectedRowRef = React.useRef<HTMLTableRowElement>(null)
 
@@ -269,7 +263,7 @@ export const TabularView: React.FC<TabularViewProps> = ({ currentRun }) => {
                       onClick={(e) => {
                         e.stopPropagation()
                         if (!tc?.span) return
-                        vscode.postMessage({ command: 'jumpToFile', span: createSpan(tc.span) })
+                        vscode.jumpToFile(tc.span);
                       }}
                     >
                       {test.testName}

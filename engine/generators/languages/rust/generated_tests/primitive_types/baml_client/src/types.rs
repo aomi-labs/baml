@@ -13,46 +13,193 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Represents the BAML `null` type in Rust
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct NullValue;
+
+impl baml_client_rust::types::ToBamlValue for NullValue {
+    fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+        Ok(baml_client_rust::types::BamlValue::Null)
+    }
+}
+
+impl baml_client_rust::types::FromBamlValue for NullValue {
+    fn from_baml_value(
+        value: baml_client_rust::types::BamlValue,
+    ) -> baml_client_rust::BamlResult<Self> {
+        match value {
+            baml_client_rust::types::BamlValue::Null => Ok(NullValue),
+            other => Err(baml_client_rust::BamlError::deserialization(format!(
+                "Expected null, got {:?}",
+                other
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum RustLiteralKind {
+    String,
+    Int,
+    Bool,
+}
+
+macro_rules! define_baml_media_type {
+    ($name:ident, $variant:ident) => {
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+        #[serde(transparent)]
+        pub struct $name {
+            inner: baml_types::BamlMedia,
+        }
+
+        impl $name {
+            pub fn new(media: baml_types::BamlMedia) -> baml_client_rust::BamlResult<Self> {
+                if media.media_type == baml_types::BamlMediaType::$variant {
+                    Ok(Self { inner: media })
+                } else {
+                    Err(baml_client_rust::BamlError::deserialization(format!(
+                        "Expected {:?} media, got {:?}",
+                        baml_types::BamlMediaType::$variant,
+                        media.media_type
+                    )))
+                }
+            }
+
+            pub fn from_url(url: impl Into<String>, mime_type: Option<String>) -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::url(
+                        baml_types::BamlMediaType::$variant,
+                        url.into(),
+                        mime_type,
+                    ),
+                }
+            }
+
+            pub fn from_base64(base64: impl Into<String>, mime_type: Option<String>) -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::base64(
+                        baml_types::BamlMediaType::$variant,
+                        base64.into(),
+                        mime_type,
+                    ),
+                }
+            }
+
+            pub fn into_inner(self) -> baml_types::BamlMedia {
+                self.inner
+            }
+
+            pub fn as_inner(&self) -> &baml_types::BamlMedia {
+                &self.inner
+            }
+        }
+
+        impl TryFrom<baml_types::BamlMedia> for $name {
+            type Error = baml_client_rust::BamlError;
+
+            fn try_from(media: baml_types::BamlMedia) -> std::result::Result<Self, Self::Error> {
+                Self::new(media)
+            }
+        }
+
+        impl From<$name> for baml_types::BamlMedia {
+            fn from(value: $name) -> Self {
+                value.inner
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::base64(
+                        baml_types::BamlMediaType::$variant,
+                        String::new(),
+                        None,
+                    ),
+                }
+            }
+        }
+
+        impl baml_client_rust::types::ToBamlValue for $name {
+            fn to_baml_value(
+                self,
+            ) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+                Ok(baml_client_rust::types::BamlValue::Media(self.inner))
+            }
+        }
+
+        impl baml_client_rust::types::FromBamlValue for $name {
+            fn from_baml_value(
+                value: baml_client_rust::types::BamlValue,
+            ) -> baml_client_rust::BamlResult<Self> {
+                match value {
+                    baml_client_rust::types::BamlValue::Media(media) => {
+                        if media.media_type == baml_types::BamlMediaType::$variant {
+                            Ok(Self { inner: media })
+                        } else {
+                            Err(baml_client_rust::BamlError::deserialization(format!(
+                                "Expected {:?} media, got {:?}",
+                                baml_types::BamlMediaType::$variant,
+                                media.media_type
+                            )))
+                        }
+                    }
+                    other => Err(baml_client_rust::BamlError::deserialization(format!(
+                        "Expected media value, got {:?}",
+                        other
+                    ))),
+                }
+            }
+        }
+    };
+}
+
+define_baml_media_type!(BamlImage, Image);
+define_baml_media_type!(BamlAudio, Audio);
+define_baml_media_type!(BamlPdf, Pdf);
+define_baml_media_type!(BamlVideo, Video);
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MixedPrimitives {
     pub name: String,
 
-    pub age: String,
+    pub age: i64,
 
-    pub height: String,
+    pub height: f64,
 
-    pub isActive: String,
+    pub is_active: bool,
 
-    pub metadata: String,
+    pub metadata: crate::types::NullValue,
 
-    pub tags: String,
+    pub tags: Vec<String>,
 
-    pub scores: String,
+    pub scores: Vec<i64>,
 
-    pub measurements: String,
+    pub measurements: Vec<f64>,
 
-    pub flags: String,
+    pub flags: Vec<bool>,
 }
 
 impl MixedPrimitives {
     /// Create a new MixedPrimitives instance
     pub fn new(
         name: String,
-        age: String,
-        height: String,
-        isActive: String,
-        metadata: String,
-        tags: String,
-        scores: String,
-        measurements: String,
-        flags: String,
+        age: i64,
+        height: f64,
+        is_active: bool,
+        metadata: crate::types::NullValue,
+        tags: Vec<String>,
+        scores: Vec<i64>,
+        measurements: Vec<f64>,
+        flags: Vec<bool>,
     ) -> Self {
         Self {
             name,
             age,
             height,
-            isActive,
+            is_active,
             metadata,
             tags,
             scores,
@@ -66,14 +213,14 @@ impl Default for MixedPrimitives {
     fn default() -> Self {
         Self::new(
             String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
+            0,
+            0.0,
+            false,
+            crate::types::NullValue,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
         )
     }
 }
@@ -85,7 +232,7 @@ impl baml_client_rust::types::ToBamlValue for MixedPrimitives {
         map.insert("name".to_string(), self.name.to_baml_value()?);
         map.insert("age".to_string(), self.age.to_baml_value()?);
         map.insert("height".to_string(), self.height.to_baml_value()?);
-        map.insert("isActive".to_string(), self.isActive.to_baml_value()?);
+        map.insert("isActive".to_string(), self.is_active.to_baml_value()?);
         map.insert("metadata".to_string(), self.metadata.to_baml_value()?);
         map.insert("tags".to_string(), self.tags.to_baml_value()?);
         map.insert("scores".to_string(), self.scores.to_baml_value()?);
@@ -107,101 +254,175 @@ impl baml_client_rust::types::FromBamlValue for MixedPrimitives {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let name = map
-                    .get("name")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let name = match map.get("name") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'name' in MixedPrimitives"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let age = map
-                    .get("age")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let age = match map.get("age") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'age' in MixedPrimitives"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let height = map
-                    .get("height")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let height = match map.get("height") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0.0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0.0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'height' in MixedPrimitives"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let isActive = map
-                    .get("isActive")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let is_active = match map.get("isActive") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            false
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => false,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'isActive' in MixedPrimitives"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let metadata = map
-                    .get("metadata")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let metadata = match map.get("metadata") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            crate::types::NullValue
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => {
+                        crate::types::NullValue
+                    }
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'metadata' in MixedPrimitives"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let tags = map
-                    .get("tags")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let tags = match map.get("tags") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'tags' in MixedPrimitives"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let scores = map
-                    .get("scores")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let scores = match map.get("scores") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'scores' in MixedPrimitives"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let measurements = map
-                    .get("measurements")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let measurements = match map.get("measurements") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'measurements' in MixedPrimitives"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let flags = map
-                    .get("flags")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let flags = match map.get("flags") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'flags' in MixedPrimitives"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(
                     name,
                     age,
                     height,
-                    isActive,
+                    is_active,
                     metadata,
                     tags,
                     scores,
@@ -217,37 +438,37 @@ impl baml_client_rust::types::FromBamlValue for MixedPrimitives {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PrimitiveArrays {
-    pub stringArray: String,
+    pub string_array: Vec<String>,
 
-    pub intArray: String,
+    pub int_array: Vec<i64>,
 
-    pub floatArray: String,
+    pub float_array: Vec<f64>,
 
-    pub boolArray: String,
+    pub bool_array: Vec<bool>,
 }
 
 impl PrimitiveArrays {
     /// Create a new PrimitiveArrays instance
     pub fn new(
-        stringArray: String,
-        intArray: String,
-        floatArray: String,
-        boolArray: String,
+        string_array: Vec<String>,
+        int_array: Vec<i64>,
+        float_array: Vec<f64>,
+        bool_array: Vec<bool>,
     ) -> Self {
         Self {
-            stringArray,
-            intArray,
-            floatArray,
-            boolArray,
+            string_array,
+            int_array,
+            float_array,
+            bool_array,
         }
     }
 }
 
 impl Default for PrimitiveArrays {
     fn default() -> Self {
-        Self::new(String::new(), String::new(), String::new(), String::new())
+        Self::new(Vec::new(), Vec::new(), Vec::new(), Vec::new())
     }
 }
 
@@ -255,10 +476,13 @@ impl Default for PrimitiveArrays {
 impl baml_client_rust::types::ToBamlValue for PrimitiveArrays {
     fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
         let mut map = baml_client_rust::types::BamlMap::new();
-        map.insert("stringArray".to_string(), self.stringArray.to_baml_value()?);
-        map.insert("intArray".to_string(), self.intArray.to_baml_value()?);
-        map.insert("floatArray".to_string(), self.floatArray.to_baml_value()?);
-        map.insert("boolArray".to_string(), self.boolArray.to_baml_value()?);
+        map.insert(
+            "stringArray".to_string(),
+            self.string_array.to_baml_value()?,
+        );
+        map.insert("intArray".to_string(), self.int_array.to_baml_value()?);
+        map.insert("floatArray".to_string(), self.float_array.to_baml_value()?);
+        map.insert("boolArray".to_string(), self.bool_array.to_baml_value()?);
         Ok(baml_client_rust::types::BamlValue::Class(
             "PrimitiveArrays".to_string(),
             map,
@@ -272,47 +496,79 @@ impl baml_client_rust::types::FromBamlValue for PrimitiveArrays {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let stringArray = map
-                    .get("stringArray")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let string_array = match map.get("stringArray") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'stringArray' in PrimitiveArrays"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let intArray = map
-                    .get("intArray")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let int_array = match map.get("intArray") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'intArray' in PrimitiveArrays"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let floatArray = map
-                    .get("floatArray")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let float_array = match map.get("floatArray") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'floatArray' in PrimitiveArrays"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let boolArray = map
-                    .get("boolArray")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let bool_array = match map.get("boolArray") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'boolArray' in PrimitiveArrays"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                Ok(Self::new(stringArray, intArray, floatArray, boolArray))
+                        )));
+                    }
+                };
+                Ok(Self::new(string_array, int_array, float_array, bool_array))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
                 "Expected class, got {:?}",
@@ -322,32 +578,42 @@ impl baml_client_rust::types::FromBamlValue for PrimitiveArrays {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PrimitiveMaps {
-    pub stringMap: String,
+    pub string_map: std::collections::HashMap<String, String>,
 
-    pub intMap: String,
+    pub int_map: std::collections::HashMap<String, i64>,
 
-    pub floatMap: String,
+    pub float_map: std::collections::HashMap<String, f64>,
 
-    pub boolMap: String,
+    pub bool_map: std::collections::HashMap<String, bool>,
 }
 
 impl PrimitiveMaps {
     /// Create a new PrimitiveMaps instance
-    pub fn new(stringMap: String, intMap: String, floatMap: String, boolMap: String) -> Self {
+    pub fn new(
+        string_map: std::collections::HashMap<String, String>,
+        int_map: std::collections::HashMap<String, i64>,
+        float_map: std::collections::HashMap<String, f64>,
+        bool_map: std::collections::HashMap<String, bool>,
+    ) -> Self {
         Self {
-            stringMap,
-            intMap,
-            floatMap,
-            boolMap,
+            string_map,
+            int_map,
+            float_map,
+            bool_map,
         }
     }
 }
 
 impl Default for PrimitiveMaps {
     fn default() -> Self {
-        Self::new(String::new(), String::new(), String::new(), String::new())
+        Self::new(
+            std::collections::HashMap::new(),
+            std::collections::HashMap::new(),
+            std::collections::HashMap::new(),
+            std::collections::HashMap::new(),
+        )
     }
 }
 
@@ -355,10 +621,10 @@ impl Default for PrimitiveMaps {
 impl baml_client_rust::types::ToBamlValue for PrimitiveMaps {
     fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
         let mut map = baml_client_rust::types::BamlMap::new();
-        map.insert("stringMap".to_string(), self.stringMap.to_baml_value()?);
-        map.insert("intMap".to_string(), self.intMap.to_baml_value()?);
-        map.insert("floatMap".to_string(), self.floatMap.to_baml_value()?);
-        map.insert("boolMap".to_string(), self.boolMap.to_baml_value()?);
+        map.insert("stringMap".to_string(), self.string_map.to_baml_value()?);
+        map.insert("intMap".to_string(), self.int_map.to_baml_value()?);
+        map.insert("floatMap".to_string(), self.float_map.to_baml_value()?);
+        map.insert("boolMap".to_string(), self.bool_map.to_baml_value()?);
         Ok(baml_client_rust::types::BamlValue::Class(
             "PrimitiveMaps".to_string(),
             map,
@@ -372,47 +638,87 @@ impl baml_client_rust::types::FromBamlValue for PrimitiveMaps {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let stringMap = map
-                    .get("stringMap")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let string_map = match map.get("stringMap") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            std::collections::HashMap::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => {
+                        std::collections::HashMap::new()
+                    }
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'stringMap' in PrimitiveMaps"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let intMap = map
-                    .get("intMap")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let int_map = match map.get("intMap") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            std::collections::HashMap::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => {
+                        std::collections::HashMap::new()
+                    }
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'intMap' in PrimitiveMaps"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let floatMap = map
-                    .get("floatMap")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let float_map = match map.get("floatMap") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            std::collections::HashMap::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => {
+                        std::collections::HashMap::new()
+                    }
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'floatMap' in PrimitiveMaps"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let boolMap = map
-                    .get("boolMap")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let bool_map = match map.get("boolMap") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            std::collections::HashMap::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => {
+                        std::collections::HashMap::new()
+                    }
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'boolMap' in PrimitiveMaps"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                Ok(Self::new(stringMap, intMap, floatMap, boolMap))
+                        )));
+                    }
+                };
+                Ok(Self::new(string_map, int_map, float_map, bool_map))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
                 "Expected class, got {:?}",
@@ -422,47 +728,41 @@ impl baml_client_rust::types::FromBamlValue for PrimitiveMaps {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PrimitiveTypes {
-    pub stringField: String,
+    pub string_field: String,
 
-    pub intField: String,
+    pub int_field: i64,
 
-    pub floatField: String,
+    pub float_field: f64,
 
-    pub boolField: String,
+    pub bool_field: bool,
 
-    pub nullField: String,
+    pub null_field: crate::types::NullValue,
 }
 
 impl PrimitiveTypes {
     /// Create a new PrimitiveTypes instance
     pub fn new(
-        stringField: String,
-        intField: String,
-        floatField: String,
-        boolField: String,
-        nullField: String,
+        string_field: String,
+        int_field: i64,
+        float_field: f64,
+        bool_field: bool,
+        null_field: crate::types::NullValue,
     ) -> Self {
         Self {
-            stringField,
-            intField,
-            floatField,
-            boolField,
-            nullField,
+            string_field,
+            int_field,
+            float_field,
+            bool_field,
+            null_field,
         }
     }
 }
 
 impl Default for PrimitiveTypes {
     fn default() -> Self {
-        Self::new(
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-        )
+        Self::new(String::new(), 0, 0.0, false, crate::types::NullValue)
     }
 }
 
@@ -470,11 +770,14 @@ impl Default for PrimitiveTypes {
 impl baml_client_rust::types::ToBamlValue for PrimitiveTypes {
     fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
         let mut map = baml_client_rust::types::BamlMap::new();
-        map.insert("stringField".to_string(), self.stringField.to_baml_value()?);
-        map.insert("intField".to_string(), self.intField.to_baml_value()?);
-        map.insert("floatField".to_string(), self.floatField.to_baml_value()?);
-        map.insert("boolField".to_string(), self.boolField.to_baml_value()?);
-        map.insert("nullField".to_string(), self.nullField.to_baml_value()?);
+        map.insert(
+            "stringField".to_string(),
+            self.string_field.to_baml_value()?,
+        );
+        map.insert("intField".to_string(), self.int_field.to_baml_value()?);
+        map.insert("floatField".to_string(), self.float_field.to_baml_value()?);
+        map.insert("boolField".to_string(), self.bool_field.to_baml_value()?);
+        map.insert("nullField".to_string(), self.null_field.to_baml_value()?);
         Ok(baml_client_rust::types::BamlValue::Class(
             "PrimitiveTypes".to_string(),
             map,
@@ -488,62 +791,104 @@ impl baml_client_rust::types::FromBamlValue for PrimitiveTypes {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let stringField = map
-                    .get("stringField")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let string_field = match map.get("stringField") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'stringField' in PrimitiveTypes"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let intField = map
-                    .get("intField")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let int_field = match map.get("intField") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'intField' in PrimitiveTypes"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let floatField = map
-                    .get("floatField")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let float_field = match map.get("floatField") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0.0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0.0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'floatField' in PrimitiveTypes"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let boolField = map
-                    .get("boolField")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let bool_field = match map.get("boolField") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            false
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => false,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'boolField' in PrimitiveTypes"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let nullField = map
-                    .get("nullField")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let null_field = match map.get("nullField") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            crate::types::NullValue
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => {
+                        crate::types::NullValue
+                    }
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'nullField' in PrimitiveTypes"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(
-                    stringField,
-                    intField,
-                    floatField,
-                    boolField,
-                    nullField,
+                    string_field,
+                    int_field,
+                    float_field,
+                    bool_field,
+                    null_field,
                 ))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(

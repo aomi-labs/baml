@@ -13,16 +13,163 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Represents the BAML `null` type in Rust
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct NullValue;
+
+impl baml_client_rust::types::ToBamlValue for NullValue {
+    fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+        Ok(baml_client_rust::types::BamlValue::Null)
+    }
+}
+
+impl baml_client_rust::types::FromBamlValue for NullValue {
+    fn from_baml_value(
+        value: baml_client_rust::types::BamlValue,
+    ) -> baml_client_rust::BamlResult<Self> {
+        match value {
+            baml_client_rust::types::BamlValue::Null => Ok(NullValue),
+            other => Err(baml_client_rust::BamlError::deserialization(format!(
+                "Expected null, got {:?}",
+                other
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum RustLiteralKind {
+    String,
+    Int,
+    Bool,
+}
+
+macro_rules! define_baml_media_type {
+    ($name:ident, $variant:ident) => {
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+        #[serde(transparent)]
+        pub struct $name {
+            inner: baml_types::BamlMedia,
+        }
+
+        impl $name {
+            pub fn new(media: baml_types::BamlMedia) -> baml_client_rust::BamlResult<Self> {
+                if media.media_type == baml_types::BamlMediaType::$variant {
+                    Ok(Self { inner: media })
+                } else {
+                    Err(baml_client_rust::BamlError::deserialization(format!(
+                        "Expected {:?} media, got {:?}",
+                        baml_types::BamlMediaType::$variant,
+                        media.media_type
+                    )))
+                }
+            }
+
+            pub fn from_url(url: impl Into<String>, mime_type: Option<String>) -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::url(
+                        baml_types::BamlMediaType::$variant,
+                        url.into(),
+                        mime_type,
+                    ),
+                }
+            }
+
+            pub fn from_base64(base64: impl Into<String>, mime_type: Option<String>) -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::base64(
+                        baml_types::BamlMediaType::$variant,
+                        base64.into(),
+                        mime_type,
+                    ),
+                }
+            }
+
+            pub fn into_inner(self) -> baml_types::BamlMedia {
+                self.inner
+            }
+
+            pub fn as_inner(&self) -> &baml_types::BamlMedia {
+                &self.inner
+            }
+        }
+
+        impl TryFrom<baml_types::BamlMedia> for $name {
+            type Error = baml_client_rust::BamlError;
+
+            fn try_from(media: baml_types::BamlMedia) -> std::result::Result<Self, Self::Error> {
+                Self::new(media)
+            }
+        }
+
+        impl From<$name> for baml_types::BamlMedia {
+            fn from(value: $name) -> Self {
+                value.inner
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::base64(
+                        baml_types::BamlMediaType::$variant,
+                        String::new(),
+                        None,
+                    ),
+                }
+            }
+        }
+
+        impl baml_client_rust::types::ToBamlValue for $name {
+            fn to_baml_value(
+                self,
+            ) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+                Ok(baml_client_rust::types::BamlValue::Media(self.inner))
+            }
+        }
+
+        impl baml_client_rust::types::FromBamlValue for $name {
+            fn from_baml_value(
+                value: baml_client_rust::types::BamlValue,
+            ) -> baml_client_rust::BamlResult<Self> {
+                match value {
+                    baml_client_rust::types::BamlValue::Media(media) => {
+                        if media.media_type == baml_types::BamlMediaType::$variant {
+                            Ok(Self { inner: media })
+                        } else {
+                            Err(baml_client_rust::BamlError::deserialization(format!(
+                                "Expected {:?} media, got {:?}",
+                                baml_types::BamlMediaType::$variant,
+                                media.media_type
+                            )))
+                        }
+                    }
+                    other => Err(baml_client_rust::BamlError::deserialization(format!(
+                        "Expected media value, got {:?}",
+                        other
+                    ))),
+                }
+            }
+        }
+    };
+}
+
+define_baml_media_type!(BamlImage, Image);
+define_baml_media_type!(BamlAudio, Audio);
+define_baml_media_type!(BamlPdf, Pdf);
+define_baml_media_type!(BamlVideo, Video);
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExistingSystemComponent {
-    pub id: String,
+    pub id: i64,
 
     pub name: String,
 
     pub r#type: String,
 
-    pub category: String,
+    pub category: crate::types::Union2KResourceOrKService,
 
     pub explanation: String,
 }
@@ -30,10 +177,10 @@ pub struct ExistingSystemComponent {
 impl ExistingSystemComponent {
     /// Create a new ExistingSystemComponent instance
     pub fn new(
-        id: String,
+        id: i64,
         name: String,
         r#type: String,
-        category: String,
+        category: crate::types::Union2KResourceOrKService,
         explanation: String,
     ) -> Self {
         Self {
@@ -49,10 +196,10 @@ impl ExistingSystemComponent {
 impl Default for ExistingSystemComponent {
     fn default() -> Self {
         Self::new(
+            0,
             String::new(),
             String::new(),
-            String::new(),
-            String::new(),
+            crate::types::Union2KResourceOrKService::default(),
             String::new(),
         )
     }
@@ -64,7 +211,7 @@ impl baml_client_rust::types::ToBamlValue for ExistingSystemComponent {
         let mut map = baml_client_rust::types::BamlMap::new();
         map.insert("id".to_string(), self.id.to_baml_value()?);
         map.insert("name".to_string(), self.name.to_baml_value()?);
-        map.insert("r#type".to_string(), self.r#type.to_baml_value()?);
+        map.insert("type".to_string(), self.r#type.to_baml_value()?);
         map.insert("category".to_string(), self.category.to_baml_value()?);
         map.insert("explanation".to_string(), self.explanation.to_baml_value()?);
         Ok(baml_client_rust::types::BamlValue::Class(
@@ -80,56 +227,98 @@ impl baml_client_rust::types::FromBamlValue for ExistingSystemComponent {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let id = map
-                    .get("id")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let id = match map.get("id") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'id' in ExistingSystemComponent"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let name = map
-                    .get("name")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let name = match map.get("name") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'name' in ExistingSystemComponent"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let r#type = map
-                    .get("r#type")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
-                            "Missing field 'r#type' in ExistingSystemComponent"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let category = map
-                    .get("category")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let r#type = match map.get("type") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
+                            "Missing field 'type' in ExistingSystemComponent"
+                        )));
+                    }
+                };
+                let category = match map.get("category") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            crate::types::Union2KResourceOrKService::default()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => {
+                        crate::types::Union2KResourceOrKService::default()
+                    }
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'category' in ExistingSystemComponent"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let explanation = map
-                    .get("explanation")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let explanation = match map.get("explanation") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'explanation' in ExistingSystemComponent"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(id, name, r#type, category, explanation))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -140,21 +329,21 @@ impl baml_client_rust::types::FromBamlValue for ExistingSystemComponent {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UseMyUnion {
-    pub u: String,
+    pub u: Option<crate::types::Union3IntOrRecursive1OrString>,
 }
 
 impl UseMyUnion {
     /// Create a new UseMyUnion instance
-    pub fn new(u: String) -> Self {
+    pub fn new(u: Option<crate::types::Union3IntOrRecursive1OrString>) -> Self {
         Self { u }
     }
 }
 
 impl Default for UseMyUnion {
     fn default() -> Self {
-        Self::new(String::new())
+        Self::new(None)
     }
 }
 
@@ -176,16 +365,24 @@ impl baml_client_rust::types::FromBamlValue for UseMyUnion {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let u = map
-                    .get("u")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let u = match map.get("u") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'u' in UseMyUnion"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(u))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -200,7 +397,7 @@ impl baml_client_rust::types::FromBamlValue for UseMyUnion {
 #[serde(untagged)]
 pub enum Union2IntOrListRecursive1 {
     Int(i64),
-    List1(Vec<crate::types::Recursive1>),
+    ListRecursive1(Vec<crate::types::Recursive1>),
 }
 
 impl Union2IntOrListRecursive1 {
@@ -237,37 +434,37 @@ impl Union2IntOrListRecursive1 {
         Self::Int(value)
     }
 
-    /// Check if this union is a List1 variant
-    pub fn is_list1(&self) -> bool {
-        matches!(self, Self::List1(_))
+    /// Check if this union is a ListRecursive1 variant
+    pub fn is_list_recursive1(&self) -> bool {
+        matches!(self, Self::ListRecursive1(_))
     }
-    /// Get the List1 value if this union contains it
-    pub fn as_list1(&self) -> Option<&Vec<crate::types::Recursive1>> {
+    /// Get the ListRecursive1 value if this union contains it
+    pub fn as_list_recursive1(&self) -> Option<&Vec<crate::types::Recursive1>> {
         match self {
-            Self::List1(v) => Some(v),
+            Self::ListRecursive1(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Extract the List1 value, consuming the union
-    pub fn into_list1(self) -> Option<Vec<crate::types::Recursive1>> {
+    /// Extract the ListRecursive1 value, consuming the union
+    pub fn into_list_recursive1(self) -> Option<Vec<crate::types::Recursive1>> {
         match self {
-            Self::List1(v) => Some(v),
+            Self::ListRecursive1(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Get a mutable reference to the List1 value if this union contains it
-    pub fn as_list1_mut(&mut self) -> Option<&mut Vec<crate::types::Recursive1>> {
+    /// Get a mutable reference to the ListRecursive1 value if this union contains it
+    pub fn as_list_recursive1_mut(&mut self) -> Option<&mut Vec<crate::types::Recursive1>> {
         match self {
-            Self::List1(v) => Some(v),
+            Self::ListRecursive1(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Create a new Union2IntOrListRecursive1 with a List1 variant
-    pub fn list1(value: Vec<crate::types::Recursive1>) -> Self {
-        Self::List1(value)
+    /// Create a new Union2IntOrListRecursive1 with a ListRecursive1 variant
+    pub fn list_recursive1(value: Vec<crate::types::Recursive1>) -> Self {
+        Self::ListRecursive1(value)
     }
 }
 
@@ -277,11 +474,11 @@ impl Union2IntOrListRecursive1 {
     pub fn match_variant<T>(
         &self,
         int: impl FnOnce(&i64) -> T,
-        list1: impl FnOnce(&Vec<crate::types::Recursive1>) -> T,
+        list_recursive1: impl FnOnce(&Vec<crate::types::Recursive1>) -> T,
     ) -> T {
         match self {
             Self::Int(v) => int(v),
-            Self::List1(v) => list1(v),
+            Self::ListRecursive1(v) => list_recursive1(v),
         }
     }
 
@@ -289,11 +486,11 @@ impl Union2IntOrListRecursive1 {
     pub fn match_variant_owned<T>(
         self,
         int: impl FnOnce(i64) -> T,
-        list1: impl FnOnce(Vec<crate::types::Recursive1>) -> T,
+        list_recursive1: impl FnOnce(Vec<crate::types::Recursive1>) -> T,
     ) -> T {
         match self {
             Self::Int(v) => int(v),
-            Self::List1(v) => list1(v),
+            Self::ListRecursive1(v) => list_recursive1(v),
         }
     }
 }
@@ -303,120 +500,154 @@ impl std::fmt::Display for Union2IntOrListRecursive1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Int(v) => write!(f, "Int({:?})", v),
-            Self::List1(v) => write!(f, "List1({:?})", v),
+            Self::ListRecursive1(v) => write!(f, "ListRecursive1({:?})", v),
         }
+    }
+}
+
+impl Default for Union2IntOrListRecursive1 {
+    fn default() -> Self {
+        Self::Int(i64::default())
+    }
+}
+
+// BAML trait implementations
+impl baml_client_rust::types::ToBamlValue for Union2IntOrListRecursive1 {
+    fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+        match self {
+            Self::Int(v) => v.to_baml_value(),
+            Self::ListRecursive1(v) => v.to_baml_value(),
+        }
+    }
+}
+
+impl baml_client_rust::types::FromBamlValue for Union2IntOrListRecursive1 {
+    fn from_baml_value(
+        value: baml_client_rust::types::BamlValue,
+    ) -> baml_client_rust::BamlResult<Self> {
+        // Try Int variant
+        if let Ok(variant_value) = i64::from_baml_value(value.clone()) {
+            return Ok(Self::Int(variant_value));
+        }
+        // Try ListRecursive1 variant
+        if let Ok(variant_value) = Vec::<crate::types::Recursive1>::from_baml_value(value.clone()) {
+            return Ok(Self::ListRecursive1(variant_value));
+        }
+
+        Err(baml_client_rust::BamlError::deserialization(format!(
+            "Could not convert {:?} to Union2IntOrListRecursive1",
+            value
+        )))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum Union2KresourceOrKservice {
-    String(String),
-    String(String),
+pub enum Union2KResourceOrKService {
+    /// Literal value: service
+    KService,
+    /// Literal value: resource
+    KResource,
 }
 
-impl Union2KresourceOrKservice {
-    /// Check if this union is a String variant
-    pub fn is_string(&self) -> bool {
-        matches!(self, Self::String(_))
-    }
-    /// Get the String value if this union contains it
-    pub fn as_string(&self) -> Option<&String> {
-        match self {
-            Self::String(v) => Some(v),
-            _ => None,
-        }
+impl Union2KResourceOrKService {
+    /// Check if this union is a KService variant
+    pub fn is_k_service(&self) -> bool {
+        matches!(self, Self::KService)
     }
 
-    /// Extract the String value, consuming the union
-    pub fn into_string(self) -> Option<String> {
-        match self {
-            Self::String(v) => Some(v),
-            _ => None,
-        }
+    /// Create a new Union2KResourceOrKService with a KService variant
+    pub fn k_service() -> Self {
+        Self::KService
     }
 
-    /// Get a mutable reference to the String value if this union contains it
-    pub fn as_string_mut(&mut self) -> Option<&mut String> {
-        match self {
-            Self::String(v) => Some(v),
-            _ => None,
-        }
+    /// Check if this union is a KResource variant
+    pub fn is_k_resource(&self) -> bool {
+        matches!(self, Self::KResource)
     }
 
-    /// Create a new Union2KresourceOrKservice with a String variant
-    pub fn string(value: String) -> Self {
-        Self::String(value)
-    }
-
-    /// Check if this union is a String variant
-    pub fn is_string(&self) -> bool {
-        matches!(self, Self::String(_))
-    }
-    /// Get the String value if this union contains it
-    pub fn as_string(&self) -> Option<&String> {
-        match self {
-            Self::String(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    /// Extract the String value, consuming the union
-    pub fn into_string(self) -> Option<String> {
-        match self {
-            Self::String(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    /// Get a mutable reference to the String value if this union contains it
-    pub fn as_string_mut(&mut self) -> Option<&mut String> {
-        match self {
-            Self::String(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    /// Create a new Union2KresourceOrKservice with a String variant
-    pub fn string(value: String) -> Self {
-        Self::String(value)
+    /// Create a new Union2KResourceOrKService with a KResource variant
+    pub fn k_resource() -> Self {
+        Self::KResource
     }
 }
 
-/// Pattern matching helper for Union2KresourceOrKservice
-impl Union2KresourceOrKservice {
+/// Pattern matching helper for Union2KResourceOrKService
+impl Union2KResourceOrKService {
     /// Match on the union variant and apply the corresponding function
     pub fn match_variant<T>(
         &self,
-        string: impl FnOnce(&String) -> T,
-        string: impl FnOnce(&String) -> T,
+        k_service: impl FnOnce() -> T,
+        k_resource: impl FnOnce() -> T,
     ) -> T {
         match self {
-            Self::String(v) => string(v),
-            Self::String(v) => string(v),
+            Self::KService => k_service(),
+            Self::KResource => k_resource(),
         }
     }
 
     /// Match on the union variant and apply the corresponding function, consuming the union
     pub fn match_variant_owned<T>(
         self,
-        string: impl FnOnce(String) -> T,
-        string: impl FnOnce(String) -> T,
+        k_service: impl FnOnce() -> T,
+        k_resource: impl FnOnce() -> T,
     ) -> T {
         match self {
-            Self::String(v) => string(v),
-            Self::String(v) => string(v),
+            Self::KService => k_service(),
+            Self::KResource => k_resource(),
         }
     }
 }
 
 /// Display implementation that shows the variant name and value
-impl std::fmt::Display for Union2KresourceOrKservice {
+impl std::fmt::Display for Union2KResourceOrKService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::String(v) => write!(f, "String({:?})", v),
-            Self::String(v) => write!(f, "String({:?})", v),
+            Self::KService => write!(f, "KService"),
+            Self::KResource => write!(f, "KResource"),
         }
+    }
+}
+
+impl Default for Union2KResourceOrKService {
+    fn default() -> Self {
+        Self::KService
+    }
+}
+
+// BAML trait implementations
+impl baml_client_rust::types::ToBamlValue for Union2KResourceOrKService {
+    fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+        match self {
+            Self::KService => Ok(baml_client_rust::types::BamlValue::String(
+                "service".to_string(),
+            )),
+            Self::KResource => Ok(baml_client_rust::types::BamlValue::String(
+                "resource".to_string(),
+            )),
+        }
+    }
+}
+
+impl baml_client_rust::types::FromBamlValue for Union2KResourceOrKService {
+    fn from_baml_value(
+        value: baml_client_rust::types::BamlValue,
+    ) -> baml_client_rust::BamlResult<Self> {
+        if let baml_client_rust::types::BamlValue::String(s) = &value {
+            if s == "service" {
+                return Ok(Self::KService);
+            }
+        }
+        if let baml_client_rust::types::BamlValue::String(s) = &value {
+            if s == "resource" {
+                return Ok(Self::KResource);
+            }
+        }
+
+        Err(baml_client_rust::BamlError::deserialization(format!(
+            "Could not convert {:?} to Union2KResourceOrKService",
+            value
+        )))
     }
 }
 
@@ -570,3 +801,54 @@ impl std::fmt::Display for Union3IntOrRecursive1OrString {
         }
     }
 }
+
+impl Default for Union3IntOrRecursive1OrString {
+    fn default() -> Self {
+        Self::Recursive1(crate::types::Recursive1::default())
+    }
+}
+
+// BAML trait implementations
+impl baml_client_rust::types::ToBamlValue for Union3IntOrRecursive1OrString {
+    fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+        match self {
+            Self::Recursive1(v) => v.to_baml_value(),
+            Self::Int(v) => v.to_baml_value(),
+            Self::String(v) => v.to_baml_value(),
+        }
+    }
+}
+
+impl baml_client_rust::types::FromBamlValue for Union3IntOrRecursive1OrString {
+    fn from_baml_value(
+        value: baml_client_rust::types::BamlValue,
+    ) -> baml_client_rust::BamlResult<Self> {
+        // Try Recursive1 variant
+        if let Ok(variant_value) = crate::types::Recursive1::from_baml_value(value.clone()) {
+            return Ok(Self::Recursive1(variant_value));
+        }
+        // Try Int variant
+        if let Ok(variant_value) = i64::from_baml_value(value.clone()) {
+            return Ok(Self::Int(variant_value));
+        }
+        // Try String variant
+        if let Ok(variant_value) = String::from_baml_value(value.clone()) {
+            return Ok(Self::String(variant_value));
+        }
+
+        Err(baml_client_rust::BamlError::deserialization(format!(
+            "Could not convert {:?} to Union3IntOrRecursive1OrString",
+            value
+        )))
+    }
+}
+
+pub type MyUnion = Option<crate::types::Union3IntOrRecursive1OrString>;
+
+pub type Nonrecursive1 = Option<i64>;
+
+pub type Nonrecursive2 = Option<String>;
+
+pub type Recursive1 = crate::types::Union2IntOrListRecursive1;
+
+pub type SystemComponentCategory = crate::types::Union2KResourceOrKService;

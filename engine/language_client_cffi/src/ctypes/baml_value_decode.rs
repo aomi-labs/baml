@@ -93,15 +93,28 @@ impl Decode for BamlValue {
 
                     BamlValue::decode(*value)?
                 }
-                Value::CheckedValue(_cffi_value_checked) => {
-                    anyhow::bail!("Checked value is not supported in BamlValue::decode")
+                Value::CheckedValue(cffi_value_checked) => {
+                    // Extract the inner value from the checked value
+                    let inner_value = cffi_value_checked
+                        .value
+                        .ok_or(anyhow::anyhow!("Checked value missing inner value"))?;
+                    BamlValue::decode(*inner_value)?
                 }
-                Value::StreamingStateValue(_cffi_value_streaming_state) => {
-                    anyhow::bail!("Streaming state value is not supported in BamlValue::decode")
+                Value::StreamingStateValue(stream_state) => {
+                    decode_streaming_state_value(stream_state)?
                 }
             },
             None => BamlValue::Null,
         })
+    }
+}
+
+fn decode_streaming_state_value(
+    stream_state: Box<crate::baml::cffi::CffiValueStreamingState>,
+) -> Result<BamlValue, anyhow::Error> {
+    match stream_state.value {
+        Some(value) => BamlValue::decode(*value),
+        None => Ok(BamlValue::Null),
     }
 }
 

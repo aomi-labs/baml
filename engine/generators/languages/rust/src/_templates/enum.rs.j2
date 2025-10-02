@@ -96,10 +96,12 @@ impl baml_client_rust::types::FromBamlValue for {{ name }} {
     fn from_baml_value(value: baml_client_rust::types::BamlValue) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Enum(_enum_name, variant) => {
-                Self::from_str(&variant).map_err(|e| baml_client_rust::BamlError::deserialization(e))
+                <Self as std::str::FromStr>::from_str(&variant)
+                    .map_err(|e| baml_client_rust::BamlError::deserialization(e))
             }
             baml_client_rust::types::BamlValue::String(s) => {
-                Self::from_str(&s).map_err(|e| baml_client_rust::BamlError::deserialization(e))
+                <Self as std::str::FromStr>::from_str(&s)
+                    .map_err(|e| baml_client_rust::BamlError::deserialization(e))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!("Expected enum, got {:?}", value))),
         }

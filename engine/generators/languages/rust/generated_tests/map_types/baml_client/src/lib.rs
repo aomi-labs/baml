@@ -31,6 +31,8 @@
 //! ```
 
 pub mod client;
+pub mod source_map;
+pub mod stream_state;
 pub mod types;
 
 // Re-exports for convenience

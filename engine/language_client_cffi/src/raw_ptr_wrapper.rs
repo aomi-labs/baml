@@ -120,6 +120,16 @@ define_raw_ptr_types! {
     TypeIR => TypeDef as TypeWrapper: "Type" (Object::Type),
 }
 
+impl RawPtrType {
+    pub(crate) fn create_collector(name: Option<&str>) -> Result<Self, String> {
+        Self::new_collector(name).map(RawPtrType::from)
+    }
+
+    pub(crate) fn create_type_builder() -> Result<Self, String> {
+        Self::new_type_builder().map(RawPtrType::from)
+    }
+}
+
 fn create_media_object(
     media_type: baml_types::BamlMediaType,
     mime_type: Option<&str>,

@@ -67,7 +67,7 @@ pub struct CallStackEntry {
     pub function_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
 pub struct ListTracesRequest {
@@ -127,6 +127,9 @@ pub struct ListTracesRequest {
     /// Search term to filter across function_call_id, function_name, tags, error, input (args), and output
     #[ts(optional)]
     pub search: Option<String>,
+    /// Filter to only show LLM function calls (function_type = 'baml_llm')
+    #[ts(optional)]
+    pub llm_only: Option<FilterExpression<bool>>,
 }
 
 impl Default for ListTracesRequest {
@@ -156,6 +159,7 @@ impl Default for ListTracesRequest {
             streamed: None,
             relative_time: None,
             search: None,
+            llm_only: None,
         }
     }
 }

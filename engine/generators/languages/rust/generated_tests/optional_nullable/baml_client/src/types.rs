@@ -13,19 +13,170 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Represents the BAML `null` type in Rust
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct NullValue;
+
+impl baml_client_rust::types::ToBamlValue for NullValue {
+    fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+        Ok(baml_client_rust::types::BamlValue::Null)
+    }
+}
+
+impl baml_client_rust::types::FromBamlValue for NullValue {
+    fn from_baml_value(
+        value: baml_client_rust::types::BamlValue,
+    ) -> baml_client_rust::BamlResult<Self> {
+        match value {
+            baml_client_rust::types::BamlValue::Null => Ok(NullValue),
+            other => Err(baml_client_rust::BamlError::deserialization(format!(
+                "Expected null, got {:?}",
+                other
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum RustLiteralKind {
+    String,
+    Int,
+    Bool,
+}
+
+macro_rules! define_baml_media_type {
+    ($name:ident, $variant:ident) => {
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+        #[serde(transparent)]
+        pub struct $name {
+            inner: baml_types::BamlMedia,
+        }
+
+        impl $name {
+            pub fn new(media: baml_types::BamlMedia) -> baml_client_rust::BamlResult<Self> {
+                if media.media_type == baml_types::BamlMediaType::$variant {
+                    Ok(Self { inner: media })
+                } else {
+                    Err(baml_client_rust::BamlError::deserialization(format!(
+                        "Expected {:?} media, got {:?}",
+                        baml_types::BamlMediaType::$variant,
+                        media.media_type
+                    )))
+                }
+            }
+
+            pub fn from_url(url: impl Into<String>, mime_type: Option<String>) -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::url(
+                        baml_types::BamlMediaType::$variant,
+                        url.into(),
+                        mime_type,
+                    ),
+                }
+            }
+
+            pub fn from_base64(base64: impl Into<String>, mime_type: Option<String>) -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::base64(
+                        baml_types::BamlMediaType::$variant,
+                        base64.into(),
+                        mime_type,
+                    ),
+                }
+            }
+
+            pub fn into_inner(self) -> baml_types::BamlMedia {
+                self.inner
+            }
+
+            pub fn as_inner(&self) -> &baml_types::BamlMedia {
+                &self.inner
+            }
+        }
+
+        impl TryFrom<baml_types::BamlMedia> for $name {
+            type Error = baml_client_rust::BamlError;
+
+            fn try_from(media: baml_types::BamlMedia) -> std::result::Result<Self, Self::Error> {
+                Self::new(media)
+            }
+        }
+
+        impl From<$name> for baml_types::BamlMedia {
+            fn from(value: $name) -> Self {
+                value.inner
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::base64(
+                        baml_types::BamlMediaType::$variant,
+                        String::new(),
+                        None,
+                    ),
+                }
+            }
+        }
+
+        impl baml_client_rust::types::ToBamlValue for $name {
+            fn to_baml_value(
+                self,
+            ) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+                Ok(baml_client_rust::types::BamlValue::Media(self.inner))
+            }
+        }
+
+        impl baml_client_rust::types::FromBamlValue for $name {
+            fn from_baml_value(
+                value: baml_client_rust::types::BamlValue,
+            ) -> baml_client_rust::BamlResult<Self> {
+                match value {
+                    baml_client_rust::types::BamlValue::Media(media) => {
+                        if media.media_type == baml_types::BamlMediaType::$variant {
+                            Ok(Self { inner: media })
+                        } else {
+                            Err(baml_client_rust::BamlError::deserialization(format!(
+                                "Expected {:?} media, got {:?}",
+                                baml_types::BamlMediaType::$variant,
+                                media.media_type
+                            )))
+                        }
+                    }
+                    other => Err(baml_client_rust::BamlError::deserialization(format!(
+                        "Expected media value, got {:?}",
+                        other
+                    ))),
+                }
+            }
+        }
+    };
+}
+
+define_baml_media_type!(BamlImage, Image);
+define_baml_media_type!(BamlAudio, Audio);
+define_baml_media_type!(BamlPdf, Pdf);
+define_baml_media_type!(BamlVideo, Video);
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComplexOptional {
-    pub data: String,
+    pub data: Option<crate::types::OptionalData>,
 
-    pub items: String,
+    pub items: Vec<crate::types::OptionalItem>,
 
-    pub mapping: String,
+    pub mapping: std::collections::HashMap<String, Option<crate::types::OptionalValue>>,
 }
 
 impl ComplexOptional {
     /// Create a new ComplexOptional instance
-    pub fn new(data: String, items: String, mapping: String) -> Self {
+    pub fn new(
+        data: Option<crate::types::OptionalData>,
+        items: Vec<crate::types::OptionalItem>,
+        mapping: std::collections::HashMap<String, Option<crate::types::OptionalValue>>,
+    ) -> Self {
         Self {
             data,
             items,
@@ -36,7 +187,7 @@ impl ComplexOptional {
 
 impl Default for ComplexOptional {
     fn default() -> Self {
-        Self::new(String::new(), String::new(), String::new())
+        Self::new(None, Vec::new(), std::collections::HashMap::new())
     }
 }
 
@@ -60,36 +211,62 @@ impl baml_client_rust::types::FromBamlValue for ComplexOptional {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let data = map
-                    .get("data")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let data = match map.get("data") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'data' in ComplexOptional"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let items = map
-                    .get("items")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let items = match map.get("items") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'items' in ComplexOptional"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let mapping = map
-                    .get("mapping")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let mapping = match map.get("mapping") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            std::collections::HashMap::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => {
+                        std::collections::HashMap::new()
+                    }
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'mapping' in ComplexOptional"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(data, items, mapping))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -100,42 +277,42 @@ impl baml_client_rust::types::FromBamlValue for ComplexOptional {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MixedOptionalNullable {
-    pub id: String,
+    pub id: i64,
 
-    pub description: String,
+    pub description: Option<String>,
 
-    pub metadata: String,
+    pub metadata: Option<String>,
 
-    pub notes: String,
+    pub notes: Option<String>,
 
-    pub tags: String,
+    pub tags: Vec<String>,
 
-    pub categories: String,
+    pub categories: Option<Vec<String>>,
 
-    pub keywords: String,
+    pub keywords: Option<Vec<String>>,
 
-    pub primaryUser: String,
+    pub primary_user: crate::types::User,
 
-    pub secondaryUser: String,
+    pub secondary_user: Option<crate::types::User>,
 
-    pub tertiaryUser: String,
+    pub tertiary_user: Option<crate::types::User>,
 }
 
 impl MixedOptionalNullable {
     /// Create a new MixedOptionalNullable instance
     pub fn new(
-        id: String,
-        description: String,
-        metadata: String,
-        notes: String,
-        tags: String,
-        categories: String,
-        keywords: String,
-        primaryUser: String,
-        secondaryUser: String,
-        tertiaryUser: String,
+        id: i64,
+        description: Option<String>,
+        metadata: Option<String>,
+        notes: Option<String>,
+        tags: Vec<String>,
+        categories: Option<Vec<String>>,
+        keywords: Option<Vec<String>>,
+        primary_user: crate::types::User,
+        secondary_user: Option<crate::types::User>,
+        tertiary_user: Option<crate::types::User>,
     ) -> Self {
         Self {
             id,
@@ -145,9 +322,9 @@ impl MixedOptionalNullable {
             tags,
             categories,
             keywords,
-            primaryUser,
-            secondaryUser,
-            tertiaryUser,
+            primary_user,
+            secondary_user,
+            tertiary_user,
         }
     }
 }
@@ -155,16 +332,16 @@ impl MixedOptionalNullable {
 impl Default for MixedOptionalNullable {
     fn default() -> Self {
         Self::new(
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
+            0,
+            None,
+            None,
+            None,
+            Vec::new(),
+            None,
+            None,
+            crate::types::User::default(),
+            None,
+            None,
         )
     }
 }
@@ -180,14 +357,17 @@ impl baml_client_rust::types::ToBamlValue for MixedOptionalNullable {
         map.insert("tags".to_string(), self.tags.to_baml_value()?);
         map.insert("categories".to_string(), self.categories.to_baml_value()?);
         map.insert("keywords".to_string(), self.keywords.to_baml_value()?);
-        map.insert("primaryUser".to_string(), self.primaryUser.to_baml_value()?);
+        map.insert(
+            "primaryUser".to_string(),
+            self.primary_user.to_baml_value()?,
+        );
         map.insert(
             "secondaryUser".to_string(),
-            self.secondaryUser.to_baml_value()?,
+            self.secondary_user.to_baml_value()?,
         );
         map.insert(
             "tertiaryUser".to_string(),
-            self.tertiaryUser.to_baml_value()?,
+            self.tertiary_user.to_baml_value()?,
         );
         Ok(baml_client_rust::types::BamlValue::Class(
             "MixedOptionalNullable".to_string(),
@@ -202,106 +382,188 @@ impl baml_client_rust::types::FromBamlValue for MixedOptionalNullable {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let id = map
-                    .get("id")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let id = match map.get("id") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'id' in MixedOptionalNullable"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let description = map
-                    .get("description")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let description = match map.get("description") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'description' in MixedOptionalNullable"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let metadata = map
-                    .get("metadata")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let metadata = match map.get("metadata") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'metadata' in MixedOptionalNullable"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let notes = map
-                    .get("notes")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let notes = match map.get("notes") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'notes' in MixedOptionalNullable"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let tags = map
-                    .get("tags")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let tags = match map.get("tags") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'tags' in MixedOptionalNullable"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let categories = map
-                    .get("categories")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let categories = match map.get("categories") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'categories' in MixedOptionalNullable"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let keywords = map
-                    .get("keywords")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let keywords = match map.get("keywords") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'keywords' in MixedOptionalNullable"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let primaryUser = map
-                    .get("primaryUser")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let primary_user = match map.get("primaryUser") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            crate::types::User::default()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => {
+                        crate::types::User::default()
+                    }
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'primaryUser' in MixedOptionalNullable"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let secondaryUser = map
-                    .get("secondaryUser")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let secondary_user = match map.get("secondaryUser") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'secondaryUser' in MixedOptionalNullable"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let tertiaryUser = map
-                    .get("tertiaryUser")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let tertiary_user = match map.get("tertiaryUser") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'tertiaryUser' in MixedOptionalNullable"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(
                     id,
                     description,
@@ -310,9 +572,9 @@ impl baml_client_rust::types::FromBamlValue for MixedOptionalNullable {
                     tags,
                     categories,
                     keywords,
-                    primaryUser,
-                    secondaryUser,
-                    tertiaryUser,
+                    primary_user,
+                    secondary_user,
+                    tertiary_user,
                 ))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -323,52 +585,45 @@ impl baml_client_rust::types::FromBamlValue for MixedOptionalNullable {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NullableTypes {
-    pub nullableString: String,
+    pub nullable_string: Option<String>,
 
-    pub nullableInt: String,
+    pub nullable_int: Option<i64>,
 
-    pub nullableFloat: String,
+    pub nullable_float: Option<f64>,
 
-    pub nullableBool: String,
+    pub nullable_bool: Option<bool>,
 
-    pub nullableArray: String,
+    pub nullable_array: Option<Vec<String>>,
 
-    pub nullableObject: String,
+    pub nullable_object: Option<crate::types::User>,
 }
 
 impl NullableTypes {
     /// Create a new NullableTypes instance
     pub fn new(
-        nullableString: String,
-        nullableInt: String,
-        nullableFloat: String,
-        nullableBool: String,
-        nullableArray: String,
-        nullableObject: String,
+        nullable_string: Option<String>,
+        nullable_int: Option<i64>,
+        nullable_float: Option<f64>,
+        nullable_bool: Option<bool>,
+        nullable_array: Option<Vec<String>>,
+        nullable_object: Option<crate::types::User>,
     ) -> Self {
         Self {
-            nullableString,
-            nullableInt,
-            nullableFloat,
-            nullableBool,
-            nullableArray,
-            nullableObject,
+            nullable_string,
+            nullable_int,
+            nullable_float,
+            nullable_bool,
+            nullable_array,
+            nullable_object,
         }
     }
 }
 
 impl Default for NullableTypes {
     fn default() -> Self {
-        Self::new(
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-        )
+        Self::new(None, None, None, None, None, None)
     }
 }
 
@@ -378,24 +633,27 @@ impl baml_client_rust::types::ToBamlValue for NullableTypes {
         let mut map = baml_client_rust::types::BamlMap::new();
         map.insert(
             "nullableString".to_string(),
-            self.nullableString.to_baml_value()?,
+            self.nullable_string.to_baml_value()?,
         );
-        map.insert("nullableInt".to_string(), self.nullableInt.to_baml_value()?);
+        map.insert(
+            "nullableInt".to_string(),
+            self.nullable_int.to_baml_value()?,
+        );
         map.insert(
             "nullableFloat".to_string(),
-            self.nullableFloat.to_baml_value()?,
+            self.nullable_float.to_baml_value()?,
         );
         map.insert(
             "nullableBool".to_string(),
-            self.nullableBool.to_baml_value()?,
+            self.nullable_bool.to_baml_value()?,
         );
         map.insert(
             "nullableArray".to_string(),
-            self.nullableArray.to_baml_value()?,
+            self.nullable_array.to_baml_value()?,
         );
         map.insert(
             "nullableObject".to_string(),
-            self.nullableObject.to_baml_value()?,
+            self.nullable_object.to_baml_value()?,
         );
         Ok(baml_client_rust::types::BamlValue::Class(
             "NullableTypes".to_string(),
@@ -410,73 +668,121 @@ impl baml_client_rust::types::FromBamlValue for NullableTypes {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let nullableString = map
-                    .get("nullableString")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let nullable_string = match map.get("nullableString") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'nullableString' in NullableTypes"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let nullableInt = map
-                    .get("nullableInt")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let nullable_int = match map.get("nullableInt") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'nullableInt' in NullableTypes"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let nullableFloat = map
-                    .get("nullableFloat")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let nullable_float = match map.get("nullableFloat") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'nullableFloat' in NullableTypes"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let nullableBool = map
-                    .get("nullableBool")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let nullable_bool = match map.get("nullableBool") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'nullableBool' in NullableTypes"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let nullableArray = map
-                    .get("nullableArray")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let nullable_array = match map.get("nullableArray") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'nullableArray' in NullableTypes"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let nullableObject = map
-                    .get("nullableObject")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let nullable_object = match map.get("nullableObject") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'nullableObject' in NullableTypes"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(
-                    nullableString,
-                    nullableInt,
-                    nullableFloat,
-                    nullableBool,
-                    nullableArray,
-                    nullableObject,
+                    nullable_string,
+                    nullable_int,
+                    nullable_float,
+                    nullable_bool,
+                    nullable_array,
+                    nullable_object,
                 ))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -487,18 +793,18 @@ impl baml_client_rust::types::FromBamlValue for NullableTypes {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OptionalData {
     pub value: String,
 
-    pub count: String,
+    pub count: Option<i64>,
 
-    pub enabled: String,
+    pub enabled: Option<bool>,
 }
 
 impl OptionalData {
     /// Create a new OptionalData instance
-    pub fn new(value: String, count: String, enabled: String) -> Self {
+    pub fn new(value: String, count: Option<i64>, enabled: Option<bool>) -> Self {
         Self {
             value,
             count,
@@ -509,7 +815,7 @@ impl OptionalData {
 
 impl Default for OptionalData {
     fn default() -> Self {
-        Self::new(String::new(), String::new(), String::new())
+        Self::new(String::new(), None, None)
     }
 }
 
@@ -533,36 +839,60 @@ impl baml_client_rust::types::FromBamlValue for OptionalData {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let value = map
-                    .get("value")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let value = match map.get("value") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'value' in OptionalData"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let count = map
-                    .get("count")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let count = match map.get("count") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'count' in OptionalData"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let enabled = map
-                    .get("enabled")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let enabled = match map.get("enabled") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'enabled' in OptionalData"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(value, count, enabled))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -573,62 +903,53 @@ impl baml_client_rust::types::FromBamlValue for OptionalData {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OptionalFields {
-    pub requiredString: String,
+    pub required_string: String,
 
-    pub optionalString: String,
+    pub optional_string: Option<String>,
 
-    pub requiredInt: String,
+    pub required_int: i64,
 
-    pub optionalInt: String,
+    pub optional_int: Option<i64>,
 
-    pub requiredBool: String,
+    pub required_bool: bool,
 
-    pub optionalBool: String,
+    pub optional_bool: Option<bool>,
 
-    pub optionalArray: String,
+    pub optional_array: Option<Vec<String>>,
 
-    pub optionalMap: String,
+    pub optional_map: Option<std::collections::HashMap<String, String>>,
 }
 
 impl OptionalFields {
     /// Create a new OptionalFields instance
     pub fn new(
-        requiredString: String,
-        optionalString: String,
-        requiredInt: String,
-        optionalInt: String,
-        requiredBool: String,
-        optionalBool: String,
-        optionalArray: String,
-        optionalMap: String,
+        required_string: String,
+        optional_string: Option<String>,
+        required_int: i64,
+        optional_int: Option<i64>,
+        required_bool: bool,
+        optional_bool: Option<bool>,
+        optional_array: Option<Vec<String>>,
+        optional_map: Option<std::collections::HashMap<String, String>>,
     ) -> Self {
         Self {
-            requiredString,
-            optionalString,
-            requiredInt,
-            optionalInt,
-            requiredBool,
-            optionalBool,
-            optionalArray,
-            optionalMap,
+            required_string,
+            optional_string,
+            required_int,
+            optional_int,
+            required_bool,
+            optional_bool,
+            optional_array,
+            optional_map,
         }
     }
 }
 
 impl Default for OptionalFields {
     fn default() -> Self {
-        Self::new(
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-        )
+        Self::new(String::new(), None, 0, None, false, None, None, None)
     }
 }
 
@@ -638,27 +959,36 @@ impl baml_client_rust::types::ToBamlValue for OptionalFields {
         let mut map = baml_client_rust::types::BamlMap::new();
         map.insert(
             "requiredString".to_string(),
-            self.requiredString.to_baml_value()?,
+            self.required_string.to_baml_value()?,
         );
         map.insert(
             "optionalString".to_string(),
-            self.optionalString.to_baml_value()?,
+            self.optional_string.to_baml_value()?,
         );
-        map.insert("requiredInt".to_string(), self.requiredInt.to_baml_value()?);
-        map.insert("optionalInt".to_string(), self.optionalInt.to_baml_value()?);
+        map.insert(
+            "requiredInt".to_string(),
+            self.required_int.to_baml_value()?,
+        );
+        map.insert(
+            "optionalInt".to_string(),
+            self.optional_int.to_baml_value()?,
+        );
         map.insert(
             "requiredBool".to_string(),
-            self.requiredBool.to_baml_value()?,
+            self.required_bool.to_baml_value()?,
         );
         map.insert(
             "optionalBool".to_string(),
-            self.optionalBool.to_baml_value()?,
+            self.optional_bool.to_baml_value()?,
         );
         map.insert(
             "optionalArray".to_string(),
-            self.optionalArray.to_baml_value()?,
+            self.optional_array.to_baml_value()?,
         );
-        map.insert("optionalMap".to_string(), self.optionalMap.to_baml_value()?);
+        map.insert(
+            "optionalMap".to_string(),
+            self.optional_map.to_baml_value()?,
+        );
         Ok(baml_client_rust::types::BamlValue::Class(
             "OptionalFields".to_string(),
             map,
@@ -672,95 +1002,159 @@ impl baml_client_rust::types::FromBamlValue for OptionalFields {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let requiredString = map
-                    .get("requiredString")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let required_string = match map.get("requiredString") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'requiredString' in OptionalFields"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let optionalString = map
-                    .get("optionalString")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let optional_string = match map.get("optionalString") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'optionalString' in OptionalFields"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let requiredInt = map
-                    .get("requiredInt")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let required_int = match map.get("requiredInt") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'requiredInt' in OptionalFields"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let optionalInt = map
-                    .get("optionalInt")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let optional_int = match map.get("optionalInt") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'optionalInt' in OptionalFields"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let requiredBool = map
-                    .get("requiredBool")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let required_bool = match map.get("requiredBool") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            false
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => false,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'requiredBool' in OptionalFields"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let optionalBool = map
-                    .get("optionalBool")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let optional_bool = match map.get("optionalBool") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'optionalBool' in OptionalFields"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let optionalArray = map
-                    .get("optionalArray")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let optional_array = match map.get("optionalArray") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'optionalArray' in OptionalFields"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let optionalMap = map
-                    .get("optionalMap")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let optional_map = match map.get("optionalMap") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'optionalMap' in OptionalFields"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(
-                    requiredString,
-                    optionalString,
-                    requiredInt,
-                    optionalInt,
-                    requiredBool,
-                    optionalBool,
-                    optionalArray,
-                    optionalMap,
+                    required_string,
+                    optional_string,
+                    required_int,
+                    optional_int,
+                    required_bool,
+                    optional_bool,
+                    optional_array,
+                    optional_map,
                 ))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -771,20 +1165,25 @@ impl baml_client_rust::types::FromBamlValue for OptionalFields {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OptionalItem {
-    pub id: String,
+    pub id: i64,
 
     pub name: String,
 
-    pub description: String,
+    pub description: Option<String>,
 
-    pub metadata: String,
+    pub metadata: Option<std::collections::HashMap<String, String>>,
 }
 
 impl OptionalItem {
     /// Create a new OptionalItem instance
-    pub fn new(id: String, name: String, description: String, metadata: String) -> Self {
+    pub fn new(
+        id: i64,
+        name: String,
+        description: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> Self {
         Self {
             id,
             name,
@@ -796,7 +1195,7 @@ impl OptionalItem {
 
 impl Default for OptionalItem {
     fn default() -> Self {
-        Self::new(String::new(), String::new(), String::new(), String::new())
+        Self::new(0, String::new(), None, None)
     }
 }
 
@@ -821,46 +1220,78 @@ impl baml_client_rust::types::FromBamlValue for OptionalItem {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let id = map
-                    .get("id")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let id = match map.get("id") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'id' in OptionalItem"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let name = map
-                    .get("name")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let name = match map.get("name") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'name' in OptionalItem"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let description = map
-                    .get("description")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let description = match map.get("description") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'description' in OptionalItem"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let metadata = map
-                    .get("metadata")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let metadata = match map.get("metadata") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'metadata' in OptionalItem"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(id, name, description, metadata))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -871,23 +1302,23 @@ impl baml_client_rust::types::FromBamlValue for OptionalItem {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OptionalValue {
-    pub data: String,
+    pub data: Option<crate::types::Union2IntOrString>,
 
-    pub optional: String,
+    pub optional: Option<String>,
 }
 
 impl OptionalValue {
     /// Create a new OptionalValue instance
-    pub fn new(data: String, optional: String) -> Self {
+    pub fn new(data: Option<crate::types::Union2IntOrString>, optional: Option<String>) -> Self {
         Self { data, optional }
     }
 }
 
 impl Default for OptionalValue {
     fn default() -> Self {
-        Self::new(String::new(), String::new())
+        Self::new(None, None)
     }
 }
 
@@ -910,26 +1341,42 @@ impl baml_client_rust::types::FromBamlValue for OptionalValue {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let data = map
-                    .get("data")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let data = match map.get("data") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'data' in OptionalValue"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let optional = map
-                    .get("optional")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let optional = match map.get("optional") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'optional' in OptionalValue"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(data, optional))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -940,25 +1387,25 @@ impl baml_client_rust::types::FromBamlValue for OptionalValue {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Product {
-    pub id: String,
+    pub id: i64,
 
     pub name: String,
 
-    pub price: String,
+    pub price: Option<f64>,
 }
 
 impl Product {
     /// Create a new Product instance
-    pub fn new(id: String, name: String, price: String) -> Self {
+    pub fn new(id: i64, name: String, price: Option<f64>) -> Self {
         Self { id, name, price }
     }
 }
 
 impl Default for Product {
     fn default() -> Self {
-        Self::new(String::new(), String::new(), String::new())
+        Self::new(0, String::new(), None)
     }
 }
 
@@ -982,36 +1429,60 @@ impl baml_client_rust::types::FromBamlValue for Product {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let id = map
-                    .get("id")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let id = match map.get("id") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'id' in Product"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let name = map
-                    .get("name")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let name = match map.get("name") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'name' in Product"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let price = map
-                    .get("price")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let price = match map.get("price") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'price' in Product"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(id, name, price))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -1022,37 +1493,37 @@ impl baml_client_rust::types::FromBamlValue for Product {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UnionWithNull {
-    pub simpleUnion: String,
+    pub simple_union: crate::types::Union2IntOrString,
 
-    pub nullableUnion: String,
+    pub nullable_union: Option<crate::types::Union2IntOrString>,
 
-    pub optionalUnion: String,
+    pub optional_union: Option<crate::types::Union2IntOrString>,
 
-    pub complexUnion: String,
+    pub complex_union: Option<crate::types::Union2ProductOrUser>,
 }
 
 impl UnionWithNull {
     /// Create a new UnionWithNull instance
     pub fn new(
-        simpleUnion: String,
-        nullableUnion: String,
-        optionalUnion: String,
-        complexUnion: String,
+        simple_union: crate::types::Union2IntOrString,
+        nullable_union: Option<crate::types::Union2IntOrString>,
+        optional_union: Option<crate::types::Union2IntOrString>,
+        complex_union: Option<crate::types::Union2ProductOrUser>,
     ) -> Self {
         Self {
-            simpleUnion,
-            nullableUnion,
-            optionalUnion,
-            complexUnion,
+            simple_union,
+            nullable_union,
+            optional_union,
+            complex_union,
         }
     }
 }
 
 impl Default for UnionWithNull {
     fn default() -> Self {
-        Self::new(String::new(), String::new(), String::new(), String::new())
+        Self::new(crate::types::Union2IntOrString::default(), None, None, None)
     }
 }
 
@@ -1060,18 +1531,21 @@ impl Default for UnionWithNull {
 impl baml_client_rust::types::ToBamlValue for UnionWithNull {
     fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
         let mut map = baml_client_rust::types::BamlMap::new();
-        map.insert("simpleUnion".to_string(), self.simpleUnion.to_baml_value()?);
+        map.insert(
+            "simpleUnion".to_string(),
+            self.simple_union.to_baml_value()?,
+        );
         map.insert(
             "nullableUnion".to_string(),
-            self.nullableUnion.to_baml_value()?,
+            self.nullable_union.to_baml_value()?,
         );
         map.insert(
             "optionalUnion".to_string(),
-            self.optionalUnion.to_baml_value()?,
+            self.optional_union.to_baml_value()?,
         );
         map.insert(
             "complexUnion".to_string(),
-            self.complexUnion.to_baml_value()?,
+            self.complex_union.to_baml_value()?,
         );
         Ok(baml_client_rust::types::BamlValue::Class(
             "UnionWithNull".to_string(),
@@ -1086,51 +1560,85 @@ impl baml_client_rust::types::FromBamlValue for UnionWithNull {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let simpleUnion = map
-                    .get("simpleUnion")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let simple_union = match map.get("simpleUnion") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            crate::types::Union2IntOrString::default()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => {
+                        crate::types::Union2IntOrString::default()
+                    }
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'simpleUnion' in UnionWithNull"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let nullableUnion = map
-                    .get("nullableUnion")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let nullable_union = match map.get("nullableUnion") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'nullableUnion' in UnionWithNull"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let optionalUnion = map
-                    .get("optionalUnion")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let optional_union = match map.get("optionalUnion") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'optionalUnion' in UnionWithNull"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let complexUnion = map
-                    .get("complexUnion")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let complex_union = match map.get("complexUnion") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'complexUnion' in UnionWithNull"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(
-                    simpleUnion,
-                    nullableUnion,
-                    optionalUnion,
-                    complexUnion,
+                    simple_union,
+                    nullable_union,
+                    optional_union,
+                    complex_union,
                 ))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -1141,20 +1649,20 @@ impl baml_client_rust::types::FromBamlValue for UnionWithNull {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct User {
-    pub id: String,
+    pub id: i64,
 
     pub name: String,
 
-    pub email: String,
+    pub email: Option<String>,
 
-    pub phone: String,
+    pub phone: Option<String>,
 }
 
 impl User {
     /// Create a new User instance
-    pub fn new(id: String, name: String, email: String, phone: String) -> Self {
+    pub fn new(id: i64, name: String, email: Option<String>, phone: Option<String>) -> Self {
         Self {
             id,
             name,
@@ -1166,7 +1674,7 @@ impl User {
 
 impl Default for User {
     fn default() -> Self {
-        Self::new(String::new(), String::new(), String::new(), String::new())
+        Self::new(0, String::new(), None, None)
     }
 }
 
@@ -1191,46 +1699,78 @@ impl baml_client_rust::types::FromBamlValue for User {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let id = map
-                    .get("id")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let id = match map.get("id") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'id' in User"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let name = map
-                    .get("name")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let name = match map.get("name") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'name' in User"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let email = map
-                    .get("email")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let email = match map.get("email") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'email' in User"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let phone = map
-                    .get("phone")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let phone = match map.get("phone") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            None
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => None,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'phone' in User"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(id, name, email, phone))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -1353,6 +1893,42 @@ impl std::fmt::Display for Union2IntOrString {
     }
 }
 
+impl Default for Union2IntOrString {
+    fn default() -> Self {
+        Self::String(String::default())
+    }
+}
+
+// BAML trait implementations
+impl baml_client_rust::types::ToBamlValue for Union2IntOrString {
+    fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+        match self {
+            Self::String(v) => v.to_baml_value(),
+            Self::Int(v) => v.to_baml_value(),
+        }
+    }
+}
+
+impl baml_client_rust::types::FromBamlValue for Union2IntOrString {
+    fn from_baml_value(
+        value: baml_client_rust::types::BamlValue,
+    ) -> baml_client_rust::BamlResult<Self> {
+        // Try String variant
+        if let Ok(variant_value) = String::from_baml_value(value.clone()) {
+            return Ok(Self::String(variant_value));
+        }
+        // Try Int variant
+        if let Ok(variant_value) = i64::from_baml_value(value.clone()) {
+            return Ok(Self::Int(variant_value));
+        }
+
+        Err(baml_client_rust::BamlError::deserialization(format!(
+            "Could not convert {:?} to Union2IntOrString",
+            value
+        )))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Union2ProductOrUser {
@@ -1462,5 +2038,41 @@ impl std::fmt::Display for Union2ProductOrUser {
             Self::User(v) => write!(f, "User({:?})", v),
             Self::Product(v) => write!(f, "Product({:?})", v),
         }
+    }
+}
+
+impl Default for Union2ProductOrUser {
+    fn default() -> Self {
+        Self::User(crate::types::User::default())
+    }
+}
+
+// BAML trait implementations
+impl baml_client_rust::types::ToBamlValue for Union2ProductOrUser {
+    fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+        match self {
+            Self::User(v) => v.to_baml_value(),
+            Self::Product(v) => v.to_baml_value(),
+        }
+    }
+}
+
+impl baml_client_rust::types::FromBamlValue for Union2ProductOrUser {
+    fn from_baml_value(
+        value: baml_client_rust::types::BamlValue,
+    ) -> baml_client_rust::BamlResult<Self> {
+        // Try User variant
+        if let Ok(variant_value) = crate::types::User::from_baml_value(value.clone()) {
+            return Ok(Self::User(variant_value));
+        }
+        // Try Product variant
+        if let Ok(variant_value) = crate::types::Product::from_baml_value(value.clone()) {
+            return Ok(Self::Product(variant_value));
+        }
+
+        Err(baml_client_rust::BamlError::deserialization(format!(
+            "Could not convert {:?} to Union2ProductOrUser",
+            value
+        )))
     }
 }

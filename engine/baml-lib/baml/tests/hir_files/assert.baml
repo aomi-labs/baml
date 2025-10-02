@@ -1,11 +1,11 @@
-fn assertOk() -> int {
+function assertOk() -> int {
 
 	assert 2 + 2 == 4;
 
 	3
 }
 
-fn assertNotOk() -> int {
+function assertNotOk() -> int {
 	assert 3 == 1;
 
 	2
@@ -13,12 +13,14 @@ fn assertNotOk() -> int {
 
 // function assertOk() {
 //   assert 2 + 2 == 4;
-//   return 3;
+//
+//   3
 // }
 //
 // function assertNotOk() {
 //   assert 3 == 1;
-//   return 2;
+//
+//   2
 // }
 //
 // class std::Request {

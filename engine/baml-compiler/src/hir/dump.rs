@@ -1,11 +1,15 @@
 //! Pretty printing for HIR.
 
+use baml_types::ir_type::TypeIR;
 use pretty::RcDoc;
 
-use crate::hir::{
-    Arrow, AssignOp, BinaryOperator, Block, Class, ClassConstructorField, Enum, EnumVariant,
-    ExprFunction, Expression, Field, Hir, LlmFunction, Parameter, Statement, TypeArg, TypeM,
-    TypeMeta, UnaryOperator,
+use crate::{
+    emit::{EmitSpec, EmitWhen},
+    hir::{
+        AssignOp, BinaryOperator, Block, Class, ClassConstructorField, Enum, EnumVariant,
+        ExprFunction, Expression, Field, Hir, LlmFunction, Parameter, Statement, TypeArg,
+        UnaryOperator,
+    },
 };
 
 impl Hir {
@@ -48,23 +52,35 @@ impl Hir {
     }
 }
 
-impl TypeM<TypeMeta> {
-    pub fn to_doc(&self) -> RcDoc<'static, ()> {
-        let meta = self.get_meta();
+pub trait TypeDocumentRender {
+    fn to_doc(&self) -> RcDoc<'static, ()>;
+}
+
+impl TypeDocumentRender for TypeIR {
+    fn to_doc(&self) -> RcDoc<'static, ()> {
+        let meta = self.meta();
         let base = match self {
-            TypeM::Int(_) => RcDoc::text("int"),
-            TypeM::Float(_) => RcDoc::text("float"),
-            TypeM::String(_) => RcDoc::text("string"),
-            TypeM::Bool(_) => RcDoc::text("bool"),
-            TypeM::Array(inner, _) => RcDoc::text("array").append(inner.to_doc()),
-            TypeM::Map(key, value, _) => RcDoc::text("map<")
+            TypeIR::Top(_) => RcDoc::text("ANY"),
+            TypeIR::Primitive(baml_types::TypeValue::Int, _) => RcDoc::text("int"),
+            TypeIR::Primitive(baml_types::TypeValue::Float, _) => RcDoc::text("float"),
+            TypeIR::Primitive(baml_types::TypeValue::String, _) => RcDoc::text("string"),
+            TypeIR::Primitive(baml_types::TypeValue::Bool, _) => RcDoc::text("bool"),
+            TypeIR::Primitive(baml_types::TypeValue::Null, _) => RcDoc::text("null"),
+            TypeIR::Primitive(baml_types::TypeValue::Media(media_type), _) => {
+                RcDoc::text(format!("{media_type}"))
+            }
+            TypeIR::List(inner, _) => RcDoc::text("array<")
+                .append(inner.to_doc())
+                .append(RcDoc::text(">")),
+            TypeIR::Map(key, value, _) => RcDoc::text("map<")
                 .append(key.to_doc())
                 .append(RcDoc::text(", "))
                 .append(value.to_doc())
                 .append(RcDoc::text(">")),
-            TypeM::ClassName(name, _) => RcDoc::text(name.clone()),
-            TypeM::EnumName(name, _) => RcDoc::text(name.clone()),
-            TypeM::Union(types, _) => {
+            TypeIR::Class { name, .. } => RcDoc::text(name.clone()),
+            TypeIR::Enum { name, .. } => RcDoc::text(name.clone()),
+            TypeIR::Union(union_type, _) => {
+                let types = union_type.iter_include_null();
                 let mut docs = Vec::new();
                 for type_ in types {
                     docs.push(type_.to_doc());
@@ -73,14 +89,21 @@ impl TypeM<TypeMeta> {
                     .append(RcDoc::intersperse(docs, RcDoc::text(" | ")))
                     .append(RcDoc::text(")"))
             }
-            TypeM::Null(_) => RcDoc::text("null"),
-            TypeM::Arrow(Arrow { inputs, output }, _) => RcDoc::text("(")
+            TypeIR::Arrow(arrow, _) => RcDoc::text("(")
                 .append(RcDoc::intersperse(
-                    inputs.iter().map(|i| i.to_doc()),
+                    arrow.param_types.iter().map(|i| i.to_doc()),
                     RcDoc::text(", "),
                 ))
                 .append(RcDoc::text(") -> "))
-                .append(output.to_doc()),
+                .append(arrow.return_type.to_doc()),
+            TypeIR::Literal(literal, _) => RcDoc::text(format!("{literal}")),
+            TypeIR::RecursiveTypeAlias { name, .. } => RcDoc::text(name.clone()),
+            TypeIR::Tuple(types, _) => RcDoc::text("(")
+                .append(RcDoc::intersperse(
+                    types.iter().map(|t| t.to_doc()),
+                    RcDoc::text(", "),
+                ))
+                .append(RcDoc::text(")")),
         };
 
         let mut doc = base;
@@ -105,42 +128,72 @@ impl TypeM<TypeMeta> {
 impl Statement {
     pub fn to_doc(&self) -> RcDoc<'static, ()> {
         match self {
-            Statement::Let { name, value, .. } => RcDoc::text("let")
+            Statement::Let {
+                name,
+                value,
+                annotated_type,
+                emit,
+                ..
+            } => RcDoc::text("let")
                 .append(RcDoc::space())
                 .append(RcDoc::text(name.clone()))
+                .append(match annotated_type {
+                    Some(t) => RcDoc::text(": ").append(t.to_doc()),
+                    None => RcDoc::nil(),
+                })
                 .append(RcDoc::space())
                 .append(RcDoc::text("="))
                 .append(RcDoc::space())
                 .append(value.to_doc())
+                .append(match emit {
+                    Some(emit) => emit.to_doc(),
+                    None => RcDoc::nil(),
+                })
                 .append(RcDoc::text(";")),
             Statement::Declare { name, .. } => RcDoc::text("var")
                 .append(RcDoc::space())
                 .append(RcDoc::text(name.clone()))
                 .append(RcDoc::text(";")),
-            Statement::Assign { name, value, .. } => RcDoc::text(name.clone())
+            Statement::Assign { left, value, .. } => left
+                .to_doc()
                 .append(RcDoc::space())
                 .append(RcDoc::text("="))
                 .append(RcDoc::space())
                 .append(value.to_doc())
                 .append(RcDoc::text(";")),
             Statement::AssignOp {
-                name,
+                left,
                 value,
                 assign_op,
                 ..
-            } => RcDoc::text(name.clone())
+            } => left
+                .to_doc()
                 .append(RcDoc::space())
                 .append(assign_op.to_doc())
                 .append(RcDoc::space())
                 .append(value.to_doc())
                 .append(RcDoc::text(";")),
-            Statement::DeclareAndAssign { name, value, .. } => RcDoc::text("var")
+            Statement::DeclareAndAssign {
+                name,
+                value,
+                annotated_type,
+                emit,
+                ..
+            } => RcDoc::text("let")
                 .append(RcDoc::space())
                 .append(RcDoc::text(name.clone()))
+                .append(match annotated_type {
+                    Some(t) => RcDoc::text(": ").append(t.to_doc()),
+                    None => RcDoc::nil(),
+                })
                 .append(RcDoc::space())
                 .append(RcDoc::text("="))
                 .append(RcDoc::space())
                 .append(value.to_doc())
+                .append(match emit {
+                    Some(emit) => emit.to_doc(),
+                    None => RcDoc::nil(),
+                })
                 .append(RcDoc::text(";")),
             Statement::Return { expr, .. } => RcDoc::text("return")
                 .append(RcDoc::space())
@@ -151,7 +204,7 @@ impl Statement {
                 .append(condition.to_doc())
                 .append(RcDoc::text(";")),
             Statement::Expression { expr, .. } => expr.to_doc(),
-            Statement::SemicolonExpression { expr, .. } => expr.to_doc(),
+            Statement::Semicolon { expr, .. } => expr.to_doc(),
             Statement::While {
                 condition, block, ..
             } => RcDoc::text("while")
@@ -262,7 +315,8 @@ impl LlmFunction {
 
 impl ExprFunction {
     pub fn to_doc(&self) -> RcDoc<'static, ()> {
-        let body_doc = if self.body.statements.is_empty() {
+        // TODO: Why nesting doesn't work if calling self.body.to_doc().nest(2)?
+        let mut body_doc = if self.body.statements.is_empty() {
             RcDoc::nil()
         } else {
             // The key is to apply nest() to the entire content that includes line breaks
@@ -278,6 +332,15 @@ impl ExprFunction {
                 .append(RcDoc::hardline())
                 .nest(2)
         };
+
+        if let Some(expr) = &self.body.trailing_expr {
+            body_doc = body_doc.append(
+                RcDoc::hardline()
+                    .append(expr.to_doc().append(RcDoc::hardline()))
+                    .nest(2),
+            );
+        }
+
         RcDoc::text("function")
             .append(RcDoc::space())
             .append(RcDoc::text(self.name.clone()))
@@ -302,7 +365,7 @@ impl ExprFunction {
 
 impl Block {
     pub fn to_doc(&self) -> RcDoc<'static, ()> {
-        if self.statements.is_empty() {
+        let doc = if self.statements.is_empty() {
             RcDoc::nil()
         } else {
             RcDoc::intersperse(
@@ -312,6 +375,12 @@ impl Block {
                     .collect::<Vec<_>>(),
                 RcDoc::hardline(),
             )
+        };
+
+        if let Some(expr) = &self.trailing_expr {
+            doc.append(RcDoc::hardline()).append(expr.to_doc())
+        } else {
+            doc
         }
     }
 }
@@ -442,7 +511,7 @@ impl Expression {
                         .append(RcDoc::space())
                 })
                 .append(RcDoc::text("}")),
-            Expression::ExpressionBlock(block, _) => RcDoc::text("{")
+            Expression::Block(block, _) => RcDoc::text("{")
                 .append(RcDoc::hardline())
                 .append(block.to_doc().nest(2))
                 .append(RcDoc::hardline())
@@ -574,6 +643,7 @@ impl std::fmt::Display for BinaryOperator {
             BinaryOperator::BitXor => "^",
             BinaryOperator::Shl => "<<",
             BinaryOperator::Shr => ">>",
+            BinaryOperator::InstanceOf => "instanceof",
         })
     }
 }
@@ -619,5 +689,27 @@ impl UnaryOperator {
 impl AssignOp {
     pub fn to_doc(&self) -> RcDoc<'static, ()> {
         RcDoc::text(self.to_string())
+    }
+}
+
+impl EmitSpec {
+    pub fn to_doc(&self) -> RcDoc<'static, ()> {
+        let mut args: Vec<String> = Vec::new();
+        if self.skip_def {
+            args.push("skip_def=true".to_string())
+        }
+        match &self.when {
+            EmitWhen::False => args.push("when=false".to_string()),
+            EmitWhen::True => {}
+            EmitWhen::FunctionName(fn_name) => args.push(format!("when={fn_name}")),
+        }
+        args.push(format!("name={}", self.name));
+        let args_doc = RcDoc::intersperse(args.iter().cloned().map(RcDoc::text), RcDoc::text(", "));
+        let doc = RcDoc::space().append(RcDoc::text("@emit"));
+        if args.is_empty() {
+            doc
+        } else {
+            doc.append(RcDoc::text("(").append(args_doc).append(RcDoc::text(")")))
+        }
     }
 }

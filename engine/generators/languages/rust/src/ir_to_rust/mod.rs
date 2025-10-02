@@ -49,6 +49,7 @@ pub(crate) fn stream_type_to_rust(field: &TypeStreaming, lookup: &impl TypeLooku
             package: types_pkg.clone(), // Use types package for both streaming and non-streaming for now
             name: name.clone(),
             dynamic: *dynamic,
+            needs_box: false,
             meta,
         },
         T::List(type_generic, _) => TypeRust::List(Box::new(recursive_fn(type_generic)), meta),
@@ -74,6 +75,7 @@ pub(crate) fn stream_type_to_rust(field: &TypeStreaming, lookup: &impl TypeLooku
                         false => stream_pkg.clone(),
                     },
                     name: name.clone(),
+                    needs_box: false,
                     meta,
                 }
             }
@@ -87,10 +89,7 @@ pub(crate) fn stream_type_to_rust(field: &TypeStreaming, lookup: &impl TypeLooku
             meta,
         },
         T::Union(union_type_generic, union_meta) => match union_type_generic.view() {
-            baml_types::ir_type::UnionTypeViewGeneric::Null => TypeRust::Any {
-                reason: "Null types are not supported in Rust".to_string(),
-                meta,
-            },
+            baml_types::ir_type::UnionTypeViewGeneric::Null => TypeRust::Null(meta),
             baml_types::ir_type::UnionTypeViewGeneric::Optional(type_generic) => {
                 let mut type_rust = recursive_fn(type_generic);
                 if union_meta
@@ -162,6 +161,11 @@ pub(crate) fn stream_type_to_rust(field: &TypeStreaming, lookup: &impl TypeLooku
                 }
             }
         },
+        // TODO(Cecilia): actually deal with this
+        T::Top(_) => TypeRust::Any {
+            reason: "top types are not supported in Rust".to_string(),
+            meta,
+        },
     };
 
     type_rust
@@ -194,6 +198,7 @@ pub(crate) fn type_to_rust(field: &TypeNonStreaming, lookup: &impl TypeLookups) 
             package: type_pkg.clone(),
             name: name.clone(),
             dynamic: *dynamic,
+            needs_box: false,
             meta,
         },
         T::List(type_generic, _) => TypeRust::List(Box::new(recursive_fn(type_generic)), meta),
@@ -220,15 +225,13 @@ pub(crate) fn type_to_rust(field: &TypeNonStreaming, lookup: &impl TypeLookups) 
                 TypeRust::TypeAlias {
                     package: type_pkg.clone(),
                     name: name.clone(),
+                    needs_box: false,
                     meta,
                 }
             }
         }
         T::Union(union_type_generic, union_meta) => match union_type_generic.view() {
-            baml_types::ir_type::UnionTypeViewGeneric::Null => TypeRust::Any {
-                reason: "Null types are not supported in Rust".to_string(),
-                meta,
-            },
+            baml_types::ir_type::UnionTypeViewGeneric::Null => TypeRust::Null(meta),
             baml_types::ir_type::UnionTypeViewGeneric::Optional(type_generic) => {
                 let mut type_rust = recursive_fn(type_generic);
                 type_rust.meta_mut().make_optional();
@@ -280,6 +283,10 @@ pub(crate) fn type_to_rust(field: &TypeNonStreaming, lookup: &impl TypeLookups) 
                     meta,
                 }
             }
+        },
+        T::Top(_) => TypeRust::Any {
+            reason: "top types are not supported in Rust".to_string(),
+            meta,
         },
     };
 
@@ -344,14 +351,7 @@ impl From<&TypeValue> for TypeRust {
             TypeValue::Int => TypeRust::Int(None, meta),
             TypeValue::Float => TypeRust::Float(meta),
             TypeValue::Bool => TypeRust::Bool(None, meta),
-            TypeValue::Null => TypeRust::Any {
-                reason: "Null types are not supported in Rust".to_string(),
-                meta: {
-                    let mut meta = meta;
-                    meta.make_optional();
-                    meta
-                },
-            },
+            TypeValue::Null => TypeRust::Null(meta),
             TypeValue::Media(baml_media_type) => TypeRust::Media(baml_media_type.into(), meta),
         }
     }

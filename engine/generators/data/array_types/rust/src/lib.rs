@@ -1,11 +1,12 @@
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use baml_client::baml;
+    use baml_client::BamlClient;
 
     #[tokio::test]
     async fn test_simple_arrays() -> Result<()> {
-        let result = baml::TestSimpleArrays("test simple arrays").await?;
+        let client = BamlClient::new()?;
+        let result = client.test_simple_arrays("test simple arrays").await?;
 
         // Verify array lengths
         assert_eq!(result.strings.len(), 3, "Expected strings length 3");
@@ -24,7 +25,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_nested_arrays() -> Result<()> {
-        let result = baml::TestNestedArrays("test nested arrays").await?;
+        let client = BamlClient::new()?;
+        let result = client.test_nested_arrays("test nested arrays").await?;
 
         // Verify nested array structure
         assert_eq!(result.matrix.len(), 3, "Expected matrix length 3");
@@ -66,7 +68,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_object_arrays() -> Result<()> {
-        let result = baml::TestObjectArrays("test object arrays").await?;
+        let client = BamlClient::new()?;
+        let result = client.test_object_arrays("test object arrays").await?;
 
         // Verify array lengths
         assert_eq!(result.users.len(), 3, "Expected 3 users");
@@ -110,7 +113,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_mixed_arrays() -> Result<()> {
-        let result = baml::TestMixedArrays("test mixed arrays").await?;
+        let client = BamlClient::new()?;
+        let result = client.test_mixed_arrays("test mixed arrays").await?;
 
         // Verify mixed array contents
         assert_eq!(
@@ -142,7 +146,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_arrays() -> Result<()> {
-        let result = baml::TestEmptyArrays("test empty arrays").await?;
+        let client = BamlClient::new()?;
+        let result = client.test_empty_arrays("test empty arrays").await?;
 
         // Verify all arrays are empty
         assert_eq!(result.strings.len(), 0, "Expected empty strings array");
@@ -156,7 +161,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_large_arrays() -> Result<()> {
-        let result = baml::TestLargeArrays("test large arrays").await?;
+        let client = BamlClient::new()?;
+        let result = client.test_large_arrays("test large arrays").await?;
 
         // Verify large array sizes
         assert!(
@@ -187,7 +193,10 @@ mod tests {
     // Test top-level array return types
     #[tokio::test]
     async fn test_top_level_string_array() -> Result<()> {
-        let result = baml::TestTopLevelStringArray("test string array").await?;
+        let client = BamlClient::new()?;
+        let result = client
+            .test_top_level_string_array("test string array")
+            .await?;
         assert_eq!(result.len(), 4, "Expected 4 strings");
         assert_eq!(result, vec!["apple", "banana", "cherry", "date"]);
         println!("✓ TopLevelStringArray test passed");
@@ -196,7 +205,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_top_level_int_array() -> Result<()> {
-        let result = baml::TestTopLevelIntArray("test int array").await?;
+        let client = BamlClient::new()?;
+        let result = client.test_top_level_int_array("test int array").await?;
         assert_eq!(result.len(), 5, "Expected 5 integers");
         assert_eq!(result, vec![10, 20, 30, 40, 50]);
         println!("✓ TopLevelIntArray test passed");
@@ -205,7 +215,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_top_level_float_array() -> Result<()> {
-        let result = baml::TestTopLevelFloatArray("test float array").await?;
+        let client = BamlClient::new()?;
+        let result = client
+            .test_top_level_float_array("test float array")
+            .await?;
         assert_eq!(result.len(), 4, "Expected 4 floats");
         assert_eq!(result, vec![1.5, 2.5, 3.5, 4.5]);
         println!("✓ TopLevelFloatArray test passed");
@@ -214,7 +227,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_top_level_bool_array() -> Result<()> {
-        let result = baml::TestTopLevelBoolArray("test bool array").await?;
+        let client = BamlClient::new()?;
+        let result = client.test_top_level_bool_array("test bool array").await?;
         assert_eq!(result.len(), 5, "Expected 5 booleans");
         assert_eq!(result, vec![true, false, true, false, true]);
         println!("✓ TopLevelBoolArray test passed");
@@ -223,7 +237,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_top_level_nested_array() -> Result<()> {
-        let result = baml::TestTopLevelNestedArray("test nested array").await?;
+        let client = BamlClient::new()?;
+        let result = client
+            .test_top_level_nested_array("test nested array")
+            .await?;
         assert_eq!(result.len(), 3, "Expected 3 rows");
         for (i, row) in result.iter().enumerate() {
             assert_eq!(row.len(), 3, "Expected 3 columns in row {}", i);
@@ -234,7 +251,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_top_level_3d_array() -> Result<()> {
-        let result = baml::TestTopLevel3DArray("test 3D array").await?;
+        let client = BamlClient::new()?;
+        let result = client.test_top_level3_d_array("test 3D array").await?;
         assert_eq!(result.len(), 2, "Expected 2 levels");
         for (i, level) in result.iter().enumerate() {
             assert_eq!(level.len(), 2, "Expected 2 rows in level {}", i);
@@ -248,7 +266,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_top_level_empty_array() -> Result<()> {
-        let result = baml::TestTopLevelEmptyArray("test empty array").await?;
+        let client = BamlClient::new()?;
+        let result = client
+            .test_top_level_empty_array("test empty array")
+            .await?;
         assert_eq!(result.len(), 0, "Expected empty array");
         println!("✓ TopLevelEmptyArray test passed");
         Ok(())
@@ -256,7 +277,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_top_level_nullable_array() -> Result<()> {
-        let result = baml::TestTopLevelNullableArray("test nullable array").await?;
+        let client = BamlClient::new()?;
+        let result = client
+            .test_top_level_nullable_array("test nullable array")
+            .await?;
         assert_eq!(result.len(), 5, "Expected 5 elements in nullable array");
         assert_eq!(
             result[0],
@@ -270,7 +294,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_top_level_object_array() -> Result<()> {
-        let result = baml::TestTopLevelObjectArray("test object array").await?;
+        let client = BamlClient::new()?;
+        let result = client
+            .test_top_level_object_array("test object array")
+            .await?;
         assert_eq!(result.len(), 3, "Expected 3 users");
         for (i, user) in result.iter().enumerate() {
             assert!(!user.name.is_empty(), "User {} has empty name", i);
@@ -282,7 +309,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_top_level_mixed_array() -> Result<()> {
-        let result = baml::TestTopLevelMixedArray("test mixed array").await?;
+        let client = BamlClient::new()?;
+        let result = client
+            .test_top_level_mixed_array("test mixed array")
+            .await?;
         assert_eq!(result.len(), 6, "Expected 6 elements in mixed array");
         println!("✓ TopLevelMixedArray test passed");
         Ok(())
@@ -290,7 +320,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_top_level_array_of_maps() -> Result<()> {
-        let result = baml::TestTopLevelArrayOfMaps("test array of maps").await?;
+        let client = BamlClient::new()?;
+        let result = client
+            .test_top_level_array_of_maps("test array of maps")
+            .await?;
         assert_eq!(result.len(), 3, "Expected 3 maps in array");
         for (i, map) in result.iter().enumerate() {
             assert_eq!(map.len(), 2, "Expected 2 entries in map {}", i);

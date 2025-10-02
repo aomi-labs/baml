@@ -24,8 +24,16 @@ class StreamState(GenericModel, typing.Generic[StreamStateValueT]):
     value: StreamStateValueT
     state: typing_extensions.Literal["Pending", "Incomplete", "Complete"]
 # #########################################################################
-# Generated classes (99)
+# Generated classes (104)
 # #########################################################################
+
+class AddTodoItem(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+    type: str
+    item: typing.Optional[str] = None
+    time: typing.Optional[str] = None
+    description: typing.Optional[str] = None
 
 class AnotherObject(BaseModel):
     class Config:
@@ -165,6 +173,14 @@ class Document1559(BaseModel):
         arbitrary_types_allowed = True
     client_details: typing.Optional["ClientDetails1559"] = None
     notes: typing.List["Note1599"]
+
+class DummyJsonTodo(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+    id: typing.Optional[int] = None
+    todo: typing.Optional[str] = None
+    completed: typing.Optional[bool] = None
+    userId: typing.Optional[int] = None
 
 class DummyOutput(BaseModel):
     class Config:
@@ -528,6 +544,19 @@ class RecursiveAliasDependency(BaseModel):
         arbitrary_types_allowed = True
     value: typing.Optional["JsonValue"] = None
 
+class RenderEnumInput(BaseModel):
+    class Config:
+        extra = Extra.allow
+        arbitrary_types_allowed = True
+    testKey: typing.Optional[str] = None
+
+class RenderTestClass(BaseModel):
+    class Config:
+        extra = Extra.allow
+        arbitrary_types_allowed = True
+    name: typing.Optional[str] = None
+    status: typing.Optional[typing.Union[types.RenderStatusEnum, str]] = None
+
 class Resume(BaseModel):
     class Config:
         arbitrary_types_allowed = True
@@ -626,6 +655,12 @@ class TestOutputClass(BaseModel):
     prop1: typing.Optional[str] = None
     prop2: typing.Optional[int] = None
 
+class TodoMessageToUser(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+    type: str
+    message: typing.Optional[str] = None
+
 class Tree(BaseModel):
     class Config:
         arbitrary_types_allowed = True
@@ -672,7 +707,7 @@ class WithReasoning(BaseModel):
     reasoning: typing.Optional[str] = None
 
 # #########################################################################
-# Generated type aliases (20)
+# Generated type aliases (21)
 # #########################################################################
 
 
@@ -734,3 +769,6 @@ RecursiveMapAlias: typing_extensions.TypeAlias = typing.Dict[str, "RecursiveMapA
 
 
 RecursiveUnion: typing_extensions.TypeAlias = typing.Optional[typing.Union[str, typing.Dict[str, "RecursiveUnion"]]]
+
+
+TodoTool: typing_extensions.TypeAlias = typing.Optional[typing.Union["AddTodoItem", "TodoMessageToUser"]]

@@ -65,7 +65,7 @@ impl baml_client_rust::types::ToBamlValue for {{ name }} {
     fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
         let mut map = baml_client_rust::types::BamlMap::new();
         {%- for field in fields %}
-        map.insert("{{ field.name }}".to_string(), self.{{ field.name }}.to_baml_value()?);
+        map.insert("{{ field.original_name }}".to_string(), self.{{ field.name }}.to_baml_value()?);
         {%- endfor %}
         {%- if dynamic %}
         for (key, value) in self.additional_properties {
@@ -81,16 +81,33 @@ impl baml_client_rust::types::FromBamlValue for {{ name }} {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
                 {%- for field in fields %}
-                let {{ field.name }} = map
-                    .get("{{ field.name }}")
-                    .ok_or_else(|| baml_client_rust::BamlError::deserialization(format!("Missing field '{{ field.name }}' in {{ name }}")))
-                    .and_then(|v| baml_client_rust::types::FromBamlValue::from_baml_value(v.clone()))?;
+                let {{ field.name }} = match map.get("{{ field.original_name }}") {
+                    Some(value) => {
+                        match value {
+                            baml_client_rust::types::BamlValue::Null
+                                if baml_client_rust::types::is_partial_deserialization() => {
+                                    {{ field.rust_type.default_value(pkg) }}
+                                }
+                            _ => baml_client_rust::types::FromBamlValue::from_baml_value(
+                                value.clone(),
+                            )?,
+                        }
+                    }
+                    None if baml_client_rust::types::is_partial_deserialization() => {
+                        {{ field.rust_type.default_value(pkg) }}
+                    }
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
+                            "Missing field '{{ field.original_name }}' in {{ name }}"
+                        )));
+                    }
+                };
                 {%- endfor %}
                 {%- if dynamic %}
                 let mut additional_properties = std::collections::HashMap::new();
                 for (key, value) in map {
                     {%- for field in fields %}
-                    if key == "{{ field.name }}" { continue; }
+                    if key == "{{ field.original_name }}" { continue; }
                     {%- endfor %}
                     additional_properties.insert(key, serde_json::to_value(value).unwrap_or(serde_json::Value::Null));
                 }

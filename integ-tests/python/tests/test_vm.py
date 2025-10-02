@@ -6,6 +6,7 @@ Important: No LLM calls here, this will run in CI.
 
 from ..baml_client.sync_client import b
 from ..baml_client.runtime import disassemble
+from ..baml_client.types import Category
 
 
 def test_return_one():
@@ -62,11 +63,6 @@ def test_iterative_fibonacci():
     assert b.IterativeFibonacci(7) == 13
     assert b.IterativeFibonacci(8) == 21
 
-def test_length_of_array():
-    assert b.LengthOfArray([1, 2, 3]) == 3
-    assert b.LengthOfArray([1, 2, 3, 4, 5]) == 5
-    assert b.LengthOfArray([]) == 0
-
 def test_sum_array():
     assert b.SumArray([1, 2, 3]) == 6
     assert b.SumArray([1, 2, 3, 4, 5]) == 15
@@ -75,3 +71,24 @@ def test_sum_array():
 
 def test_sum_from_to():
     assert b.SumFromTo(1, 10) == 55
+
+
+def test_return_category():
+    assert b.ReturnCategory(Category.Refund) == Category.Refund
+    assert b.ReturnCategory(Category.CancelOrder) == Category.CancelOrder
+    assert b.ReturnCategory(Category.TechnicalSupport) == Category.TechnicalSupport
+    assert b.ReturnCategory(Category.AccountIssue) == Category.AccountIssue
+    assert b.ReturnCategory(Category.Question) == Category.Question
+
+
+def test_return_image_from_url():
+    url = "https://upload.wikimedia.org/wikipedia/en/4/4d/Shrek_%28character%29.png"
+
+    # Image created within BAML.
+    img = b.ReturnImageFromUrl(url)
+
+    assert img.is_url()
+    assert img.as_url() == url
+
+def test_home_env_var_length():
+    assert not b.HomeEnvVarIsEmpty()

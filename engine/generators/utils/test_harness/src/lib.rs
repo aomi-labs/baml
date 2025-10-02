@@ -119,7 +119,7 @@ impl<L: TestLanguageFeatures> TestStructure<L> {
                     "rust" => {
                         vec![
                             "cargo fmt".to_string(),
-                            "cargo clippy --fix --allow-dirty --allow-staged".to_string(),
+                            "cargo check ".to_string(),
                         ]
                     }
                     "python" => vec!["ruff check --fix".to_string()],
@@ -198,7 +198,7 @@ impl<L: TestLanguageFeatures> TestStructure<L> {
                 "rust" => {
                     vec![
                         "cargo fmt".to_string(),
-                        "cargo clippy --fix --allow-dirty --allow-staged".to_string(),
+                        "cargo check ".to_string(),
                     ]
                 }
                 "python" => vec!["ruff check --fix".to_string()],

@@ -1,3 +1,4 @@
+'use client';
 import { Button } from '@baml/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@baml/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@baml/ui/tooltip';
@@ -6,13 +7,14 @@ import { useSidebar } from '@baml/ui/sidebar';
 import { useAtom, useAtomValue } from 'jotai';
 import { BarChart2, Check, Copy, Server } from 'lucide-react';
 import React from 'react';
-import { runtimeAtom } from '../../atoms';
+import { runtimeAtom, betaFeatureEnabledAtom } from '../../atoms';
 import { selectionAtom } from '../atoms';
 import { displaySettingsAtom } from '../preview-toolbar';
 import { PromptPreviewContent } from './prompt-preview-content';
 import { renderedPromptAtom } from './prompt-preview-content';
-import { PromptPreviewCurl } from './prompt-preview-curl';
+import { PromptPreviewCurl, curlAtom } from './prompt-preview-curl';
 import { ClientGraphView } from './test-panel/components/ClientGraphView';
+import { MermaidGraphView } from './test-panel/components/MermaidGraphView';
 
 // FunctionMetadata component
 const FunctionMetadata: React.FC = () => {
@@ -84,6 +86,9 @@ export const PromptRenderWrapper = () => {
   const renderedPrompt = useAtomValue(renderedPromptAtom);
   const [showCopied, setShowCopied] = React.useState(false);
   const { open: isSidebarOpen } = useSidebar();
+  const isBetaEnabled = useAtomValue(betaFeatureEnabledAtom);
+  const [activeTab, setActiveTab] = React.useState<'preview' | 'curl' | 'client-graph' | 'mermaid-graph'>('preview');
+  const curl = useAtomValue(curlAtom);
 
   // Hide text when sidebar is open or on smaller screens
   const getButtonTextClass = () => {
@@ -94,6 +99,20 @@ export const PromptRenderWrapper = () => {
   };
 
   const handleCopy = () => {
+    // If the cURL tab is active, copy the generated cURL (without secrets)
+    if (activeTab === 'curl') {
+      if (curl.state === 'hasData' && curl.data && !(curl.data instanceof Error)) {
+        const text = curl.data.curlTextWithoutSecrets ?? '';
+        if (text) {
+          void navigator.clipboard.writeText(text);
+          setShowCopied(true);
+          setTimeout(() => setShowCopied(false), 1500);
+        }
+      }
+      return;
+    }
+
+    // Otherwise copy the human-readable prompt preview
     if (!renderedPrompt) return;
     navigator.clipboard.writeText(
       renderedPrompt
@@ -109,13 +128,17 @@ export const PromptRenderWrapper = () => {
   };
 
   return (
-    <Tabs defaultValue="preview">
+    // this used to be flex flex-col h-full min-h-0
+    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="flex flex-col min-h-0">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <TabsList>
             <TabsTrigger value="preview">Preview</TabsTrigger>
             <TabsTrigger value="curl">cURL</TabsTrigger>
             <TabsTrigger value="client-graph">Client Graph</TabsTrigger>
+            {isBetaEnabled && (
+              <TabsTrigger value="mermaid-graph">Mermaid Graph</TabsTrigger>
+            )}
           </TabsList>
           <FunctionMetadata />
           <Button
@@ -130,7 +153,7 @@ export const PromptRenderWrapper = () => {
               <Copy className="size-4 flex-shrink-0" />
             )}
             <span className={getButtonTextClass()}>
-              {showCopied ? 'Copied!' : 'Copy Prompt'}
+              {showCopied ? 'Copied!' : activeTab === 'curl' ? 'Copy cURL' : 'Copy Prompt'}
             </span>
           </Button>
         </div>
@@ -160,9 +183,14 @@ export const PromptRenderWrapper = () => {
       <TabsContent value="curl">
         <PromptPreviewCurl />
       </TabsContent>
-      <TabsContent value="client-graph">
+      <TabsContent value="client-graph" className="flex-1 min-h-0">
         <ClientGraphView />
       </TabsContent>
+      {isBetaEnabled && (
+        <TabsContent value="mermaid-graph" className="flex-1 min-h-0">
+          <MermaidGraphView />
+        </TabsContent>
+      )}
     </Tabs>
   );
 };

@@ -188,6 +188,7 @@ impl<'a> IntoRpcEvent<'a, baml_rpc::runtime_api::LLMUsage>
             input_tokens: self.input_tokens,
             output_tokens: self.output_tokens,
             total_tokens: self.total_tokens,
+            cached_input_tokens: self.cached_input_tokens,
         }
     }
 }
@@ -217,6 +218,11 @@ impl<'a> IntoRpcEvent<'a, baml_rpc::runtime_api::IntermediateData<'a>>
             url: self.url().to_string(),
             method: self.method().to_string(),
             headers: redact_headers(self.headers().clone()),
+            client_details: RpcClientDetails {
+                name: self.client_details.name.clone(),
+                provider: self.client_details.provider.clone(),
+                options: self.client_details.options.clone(),
+            },
             body: self.body().to_rpc_event(lookup),
         }
     }

@@ -24,16 +24,10 @@
         clang = pkgs.llvmPackages_17.clang;
         pythonEnv = pkgs.python39.withPackages (ps: []);
 
-        toolchain = with fenix.packages.${system}; combine [
-          complete.cargo
-          complete.clippy
-          complete.rustc
-          complete.rust-std
-          complete.rustfmt
-          complete.rust-analyzer
-          targets.wasm32-unknown-unknown.latest.rust-std
-	        targets.x86_64-unknown-linux-musl.latest.rust-std
-        ];
+        toolchain = fenix.packages.${system}.fromToolchainFile {
+          file = ./rust-toolchain.toml;
+          sha256 = "sha256-+9FmLhAOezBZCOziO0Qct1NOrfpjNsXxc/8I0c7BdKE=";
+        };
 
         version = (builtins.fromTOML (builtins.readFile ./engine/Cargo.toml)).workspace.package.version;
 
@@ -52,8 +46,9 @@
         buildInputs = (with pkgs; [
           cmake
           git
-	        go
-	        gotools
+          go
+          gotools
+          mise
           openssl
           pkg-config
           lld_17
@@ -65,7 +60,7 @@
 	        protoc-gen-go
           vsce # VSCode extension packaging tool
           toolchain
-          nodejs
+          pkgs-unstable.nodejs_20
           nodePackages.typescript
           pkgs-unstable.uv
           pkgs-unstable.flatbuffers
@@ -107,7 +102,7 @@
           rustPlatform.buildRustPackage ({
               inherit pname version;
               src = ./engine;
-              filter = path: type: 
+              filter = path: type:
                   let baseName = baseNameOf path; in
                   !pkgs.lib.hasInfix "target" path &&
                   !pkgs.lib.hasInfix ".git" path &&
@@ -116,7 +111,7 @@
                   !pkgs.lib.hasInfix ".node" path &&
                   !pkgs.lib.hasInfix "node_modules" path &&
                   baseName != "result";
-              
+
               LIBCLANG_PATH = pkgs.libclang.lib + "/lib/";
               BINDGEN_EXTRA_CLANG_ARGS = if pkgs.stdenv.isDarwin then
                 "-I${pkgs.llvmPackages_17.libclang.lib}/lib/clang/17/headers "
@@ -209,7 +204,7 @@
           packages.tsLib = bamlRustPackage {
             pname = "baml-ts";
             buildType = "debug";
-            nativeBuildInputsExtra = [ pkgs.nodejs pkgs.napi-rs-cli pkgs.pnpm ];
+            nativeBuildInputsExtra = [ pkgs-unstable.nodejs_20 pkgs.napi-rs-cli pkgs.pnpm ];
             buildPhase = ''
               # Build the CLI
               echo "Building the CLI"
@@ -219,31 +214,31 @@
               echo "Building the typescript FFI crate"
               cargo build -p baml-typescript-ffi
               cd language_client_typescript
-              
+
               echo "Listing current directory contents:"
               ls -la
-              
+
               # Copy the built library to where napi expects it
               echo "Copying the built library to where napi expects it"
               mkdir -p target/debug
               find ../target -name "*.so" -o -name "*.dylib" -o -name "*.dll"
               cp ../target/debug/libbaml.so target/debug/libbaml_typescript_ffi.so
-              
+
               # Build the native module directly with release flag
               napi build --platform --js ./native.js --dts ./native.d.ts
-              
+
               # Compile TypeScript files using the Nix-provided TypeScript
               ${pkgs.nodePackages.typescript}/bin/tsc ./typescript_src/*.ts --outDir ./dist --module commonjs --allowJs --declaration true || true
-              
+
               # Copy any pre-existing JavaScript files that might be needed
               cp *.js dist/ || true
-              
+
               # Copy TypeScript declarations
               cp *.d.ts dist/ || true
-              
+
               # Copy the native modules
               cp *.node dist/
-              
+
               # Create minimal package.json and package-lock.json
               cat > dist/package.json << EOF
               {
@@ -255,7 +250,7 @@
                 "files": [
                   "*.js",
                   "*.ts",
-                  "*.node", 
+                  "*.node",
                   "bin/baml-cli"
                 ],
                 "dependencies": {},
@@ -263,7 +258,7 @@
                 "cpu": ["x64"]
               }
               EOF
-              
+
               cat > dist/package-lock.json << EOF
               {
                 "name": "@boundaryml/baml",
@@ -282,7 +277,7 @@
                 }
               }
               EOF
-  
+
               # Copy the CLI binary
               mkdir -p dist/bin
               cp ../target/debug/baml-cli dist/bin/baml-cli
@@ -306,13 +301,13 @@
           in pkgs.buildNpmPackage {
             pname = "baml";
             inherit version;
-            
+
             src = npmSource;
 
             npmDepsHash = "sha256-p7AxgJSqngcwHwKsjF6u+fS0E27KY6/ulGIIRlZLsFU=";
             forceEmptyCache = true;
 
-            buildInputs = [ pkgs.nodejs ];
+            buildInputs = [ pkgs-unstable.nodejs_20 ];
 
             # Configure npm to use temporary directories
             NPM_CONFIG_CACHE = "./tmp/npm";
@@ -339,7 +334,7 @@
             PATH="${clang}/bin:$PATH";
             RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
             LIBCLANG_PATH = pkgs.libclang.lib + "/lib/";
-            UV_PYTHON = "${pythonEnv}/bin/python3";
+            # UV_PYTHON = "${pythonEnv}/bin/python3"; // This doesn't work with maturin.
             BINDGEN_EXTRA_CLANG_ARGS = if pkgs.stdenv.isDarwin then
               "" # Rely on default includes provided by stdenv.cc + libclang
             else
@@ -347,5 +342,5 @@
           };
         }
     );
-  
+
 }

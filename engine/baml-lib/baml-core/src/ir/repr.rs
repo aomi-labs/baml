@@ -17,7 +17,7 @@ use internal_baml_ast::ast::{
     self, Attribute, FieldArity, SubType, ValExpId, WithAttributes, WithIdentifier, WithName,
     WithSpan,
 };
-use internal_baml_diagnostics::{Diagnostics, Span};
+use internal_baml_diagnostics::{DatamodelWarning, Diagnostics, Span};
 use internal_baml_parser_database::{
     walkers::{
         ClassWalker, ClientWalker, ConfigurationWalker, EnumValueWalker, EnumWalker, ExprFnWalker,
@@ -106,7 +106,8 @@ impl Pass2Repr {
             | TypeGeneric::Literal(.., meta) => {
                 meta.streaming_behavior.done = true;
             }
-            TypeGeneric::Primitive(
+            TypeGeneric::Top(_)
+            | TypeGeneric::Primitive(
                 TypeValue::String | TypeValue::Media(..) | TypeValue::Null,
                 ..,
             )
@@ -311,7 +312,7 @@ fn convert_function_body(
         .expr
         .map(|e| e.repr(db))
         .unwrap_or_else(|| {
-            eprintln!("TODO @greg: convert blocks with no return types to lambda terms");
+            // eprintln!("TODO @greg: convert blocks with no return types to lambda terms");
             // Placeholder just to allow compilation.
             Ok(Expr::Atom(BamlValueWithMeta::Null((Span::fake(), None))))
         })
@@ -341,15 +342,22 @@ impl WithRepr<Expr<ExprMetadata>> for ast::Expression {
                 *val,
                 (span.clone(), Some(TypeIR::bool())),
             ))),
-            ast::Expression::NumericValue(val, span) => val
-                .parse::<i64>()
-                .map(|v| {
-                    Expr::Atom(BamlValueWithMeta::Int(
+            ast::Expression::NumericValue(val, span) => {
+                // Prefer int when it parses cleanly; otherwise fall back to float.
+                if let Ok(v) = val.parse::<i64>() {
+                    Ok(Expr::Atom(BamlValueWithMeta::Int(
                         v,
                         (span.clone(), Some(TypeIR::int())),
-                    ))
-                })
-                .map_err(|_| anyhow!("Invalid numeric value: {}", val)),
+                    )))
+                } else if let Ok(f) = val.parse::<f64>() {
+                    Ok(Expr::Atom(BamlValueWithMeta::Float(
+                        f,
+                        (span.clone(), Some(TypeIR::float())),
+                    )))
+                } else {
+                    Err(anyhow!("Invalid numeric value: {}", val))
+                }
+            }
             ast::Expression::StringValue(val, span) => Ok(Expr::Atom(BamlValueWithMeta::String(
                 val.to_string(),
                 (span.clone(), Some(TypeIR::string())),
@@ -550,6 +558,7 @@ impl WithRepr<Expr<ExprMetadata>> for ast::Expression {
                         ast::BinaryOperator::Shr => expr::BinaryOperator::Shr,
                         ast::BinaryOperator::And => expr::BinaryOperator::And,
                         ast::BinaryOperator::Or => expr::BinaryOperator::Or,
+                        ast::BinaryOperator::InstanceOf => expr::BinaryOperator::InstanceOf,
                     },
                     right: Arc::new(right_ir),
                     meta: (span.clone(), None),
@@ -771,7 +780,7 @@ impl IntermediateRepr {
         self.expr_fns.iter().map(|e| Walker { ir: self, item: e })
     }
 
-    pub fn walk_tests(
+    pub fn walk_function_test_pairs(
         &self,
     ) -> impl Iterator<Item = Walker<'_, (&Node<Function>, &Node<TestCase>)>> {
         self.functions.iter().flat_map(move |f| {
@@ -940,6 +949,120 @@ impl IntermediateRepr {
     /// Modifies the type to inject any block level attributes that are present on the class or enum.
     pub fn finalize_type(&self, type_generic: &mut TypeIR) {
         self.pass2_repr.update_type(type_generic);
+    }
+
+    // For each test, check that its arguments are valid - that they
+    // have the correct name and type for the function under test.
+    // If there are required args but the test has an empty args block,
+    // Produce an error message with a fully example of an args block with
+    // dummy args.
+    // If there are some args in the test block, give examples of all the
+    // missing args.
+    pub fn validate_test_args(&self, diagnostics: &mut Diagnostics) {
+        use std::collections::HashSet;
+
+        use crate::ir::ir_helpers::IRHelper;
+
+        // Validate LLM function tests
+        for function in &self.functions {
+            for test in &function.elem.tests {
+                if let Some(span) = test.attributes.span.as_ref() {
+                    self.validate_single_test_args(&function.elem, &test.elem, span, diagnostics);
+                }
+            }
+        }
+
+        // Validate expression function tests
+        for expr_function in &self.expr_fns {
+            for test in &expr_function.elem.tests {
+                let pseudo_function = Function {
+                    name: expr_function.elem.name.clone(),
+                    inputs: expr_function.elem.inputs.clone(),
+                    output: expr_function.elem.output.clone(),
+                    tests: vec![],                 // Not used in validation
+                    configs: vec![],               // Not used in validation
+                    default_config: String::new(), // Not used in validation
+                };
+                if let Some(span) = test.attributes.span.as_ref() {
+                    self.validate_single_test_args(&pseudo_function, &test.elem, span, diagnostics);
+                }
+            }
+        }
+    }
+
+    fn validate_single_test_args(
+        &self,
+        function: &Function,
+        test: &TestCase,
+        test_span: &Span,
+        diagnostics: &mut Diagnostics,
+    ) {
+        use std::collections::HashSet;
+
+        use baml_types::BamlMap;
+        use internal_baml_diagnostics::DatamodelError;
+
+        use crate::ir::ir_helpers::IRHelper;
+
+        let function_inputs: HashSet<&String> =
+            function.inputs.iter().map(|(name, _)| name).collect();
+        let test_args: HashSet<&String> = test.args.keys().collect();
+
+        // Find missing required arguments (filter out optional/nullable types)
+        let missing_args: Vec<&String> = function_inputs
+            .difference(&test_args)
+            .filter(|name| {
+                function
+                    .inputs
+                    .iter()
+                    .find(|(input_name, _)| *input_name == name.to_string())
+                    .map(|(_, type_ir)| !type_ir.is_optional())
+                    .unwrap_or(false)
+            })
+            .copied()
+            .collect();
+
+        // Handle missing arguments
+        if !missing_args.is_empty() {
+            if test.args.is_empty() && !function.inputs.is_empty() {
+                // Test has empty args block but function has required args - provide full example
+                let params_map: BamlMap<String, TypeIR> = function
+                    .inputs
+                    .iter()
+                    .map(|(name, type_ir)| (name.clone(), type_ir.clone()))
+                    .collect();
+                let example_args = self.get_dummy_args(1, true, &params_map);
+
+                diagnostics.push_warning(DatamodelWarning::new(
+                    format!("Test '{}' is missing required arguments for function '{}'. Add an args block like:\n\nargs {{\n{}\n}}",
+                             test.name, function.name, example_args),
+                    test_span.clone(),
+                ));
+            } else if !missing_args.is_empty() {
+                // Test has some args but is missing others - show missing ones with dummy values
+                let missing_params_map: BamlMap<String, TypeIR> = missing_args
+                    .iter()
+                    .filter_map(|name| {
+                        function
+                            .inputs
+                            .iter()
+                            .find(|(input_name, _)| input_name == *name)
+                            .map(|(name, type_ir)| (name.clone(), type_ir.clone()))
+                    })
+                    .collect();
+                let missing_examples = self.get_dummy_args(0, false, &missing_params_map);
+
+                diagnostics.push_warning(DatamodelWarning::new(
+                    format!(
+                        "Test '{}' is missing required arguments for function '{}': {}",
+                        test.name,
+                        function.name,
+                        missing_examples.replace('\n', ", ")
+                    ),
+                    test_span.clone(),
+                ));
+            }
+        }
     }
 
     /// Some block_types like enums and classes may have attributes on them.
@@ -2789,7 +2912,8 @@ pub fn make_test_ir_and_diagnostics(
 
     let path: PathBuf = "fake_file.baml".into();
     let source_file: SourceFile = (path.clone(), source_code).into();
-    let validated_schema: ValidatedSchema = validate(&path, vec![source_file]);
+    let validated_schema: ValidatedSchema =
+        validate(&path, vec![source_file], crate::FeatureFlags::new());
     let diagnostics = validated_schema.diagnostics;
     let ir = IntermediateRepr::from_parser_database(
         &validated_schema.db,
@@ -2811,7 +2935,8 @@ fn make_test_ir_and_diagnostics_from_dir(
 
     use crate::{validate, ValidatedSchema};
 
-    let validated_schema: ValidatedSchema = validate(root_dir, source_code);
+    let validated_schema: ValidatedSchema =
+        validate(root_dir, source_code, crate::FeatureFlags::new());
     let diagnostics = validated_schema.diagnostics;
     let ir = IntermediateRepr::from_parser_database(
         &validated_schema.db,
@@ -3264,7 +3389,7 @@ mod tests {
     fn test_expr_fn_tests() {
         let ir = make_test_ir(
             r##"
-            fn Foo(x: int) -> int {
+            function Foo(x: int) -> int {
                 x
             }
 

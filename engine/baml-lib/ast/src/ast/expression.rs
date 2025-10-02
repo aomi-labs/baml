@@ -8,7 +8,7 @@ use std::fmt;
 use baml_types::JinjaExpression;
 use bstd::dedent;
 
-use super::{app::App, ArgumentsList, Identifier, Stmt, WithName, WithSpan};
+use super::{app::App, ArgumentsList, Header, Identifier, Stmt, WithName, WithSpan};
 use crate::ast::Span;
 
 #[derive(Debug, Clone)]
@@ -134,6 +134,7 @@ pub enum Expression {
         receiver: Box<Expression>,
         method: Identifier,
         args: Vec<Expression>,
+        type_args: Vec<super::FieldType>,
         span: Span,
     },
     /// Any form of binary operation.
@@ -191,6 +192,8 @@ pub enum BinaryOperator {
     And,
     /// The `||` operator (logical or).
     Or,
+    /// The `instanceof` operator (instance of).
+    InstanceOf,
 }
 
 impl fmt::Display for BinaryOperator {
@@ -214,6 +217,7 @@ impl fmt::Display for BinaryOperator {
             BinaryOperator::Shr => write!(f, ">>"),
             BinaryOperator::And => write!(f, "&&"),
             BinaryOperator::Or => write!(f, "||"),
+            BinaryOperator::InstanceOf => write!(f, "instanceof"),
         }
     }
 }
@@ -802,6 +806,8 @@ impl ClassConstructorField {
 pub struct ExpressionBlock {
     pub stmts: Vec<Stmt>,
     pub expr: Option<Box<Expression>>,
+    /// Headers that apply to the final expression
+    pub expr_headers: Vec<std::sync::Arc<Header>>,
 }
 
 // TODO: How do we indent the inner statements?

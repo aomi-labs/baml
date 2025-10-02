@@ -53,6 +53,8 @@ class BamlSyncClient:
         client_registry: typing.Optional[baml_py.baml_py.ClientRegistry] = None,
         collector: typing.Optional[typing.Union[baml_py.baml_py.Collector, typing.List[baml_py.baml_py.Collector]]] = None,
         env: typing.Optional[typing.Dict[str, typing.Optional[str]]] = None,
+        tags: typing.Optional[typing.Dict[str, str]] = None,
+        on_tick: typing.Optional[typing.Callable[[str, baml_py.baml_py.FunctionLog], None]] = None,
     ) -> "BamlSyncClient":
         options: BamlCallOptions = {}
         if tb is not None:
@@ -63,6 +65,10 @@ class BamlSyncClient:
             options["collector"] = collector
         if env is not None:
             options["env"] = env
+        if tags is not None:
+            options["tags"] = tags
+        if on_tick is not None:
+            options["on_tick"] = on_tick
         return BamlSyncClient(self.__options.merge_options(options))
 
     @property
@@ -88,31 +94,59 @@ class BamlSyncClient:
     def TestComplexUnions(self, input: str,
         baml_options: BamlCallOptions = {},
     ) -> types.ComplexUnions:
-        result = self.__options.merge_options(baml_options).call_function_sync(function_name="TestComplexUnions", args={
-            "input": input,
-        })
-        return typing.cast(types.ComplexUnions, result.cast_to(types, types, stream_types, False, __runtime__))
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            stream = self.stream.TestComplexUnions(input=input,
+                baml_options=baml_options)
+            return stream.get_final_response()
+        else:
+            # Original non-streaming code
+            result = self.__options.merge_options(baml_options).call_function_sync(function_name="TestComplexUnions", args={
+                "input": input,
+            })
+            return typing.cast(types.ComplexUnions, result.cast_to(types, types, stream_types, False, __runtime__))
     def TestDiscriminatedUnions(self, input: str,
         baml_options: BamlCallOptions = {},
     ) -> types.DiscriminatedUnions:
-        result = self.__options.merge_options(baml_options).call_function_sync(function_name="TestDiscriminatedUnions", args={
-            "input": input,
-        })
-        return typing.cast(types.DiscriminatedUnions, result.cast_to(types, types, stream_types, False, __runtime__))
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            stream = self.stream.TestDiscriminatedUnions(input=input,
+                baml_options=baml_options)
+            return stream.get_final_response()
+        else:
+            # Original non-streaming code
+            result = self.__options.merge_options(baml_options).call_function_sync(function_name="TestDiscriminatedUnions", args={
+                "input": input,
+            })
+            return typing.cast(types.DiscriminatedUnions, result.cast_to(types, types, stream_types, False, __runtime__))
     def TestPrimitiveUnions(self, input: str,
         baml_options: BamlCallOptions = {},
     ) -> types.PrimitiveUnions:
-        result = self.__options.merge_options(baml_options).call_function_sync(function_name="TestPrimitiveUnions", args={
-            "input": input,
-        })
-        return typing.cast(types.PrimitiveUnions, result.cast_to(types, types, stream_types, False, __runtime__))
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            stream = self.stream.TestPrimitiveUnions(input=input,
+                baml_options=baml_options)
+            return stream.get_final_response()
+        else:
+            # Original non-streaming code
+            result = self.__options.merge_options(baml_options).call_function_sync(function_name="TestPrimitiveUnions", args={
+                "input": input,
+            })
+            return typing.cast(types.PrimitiveUnions, result.cast_to(types, types, stream_types, False, __runtime__))
     def TestUnionArrays(self, input: str,
         baml_options: BamlCallOptions = {},
     ) -> types.UnionArrays:
-        result = self.__options.merge_options(baml_options).call_function_sync(function_name="TestUnionArrays", args={
-            "input": input,
-        })
-        return typing.cast(types.UnionArrays, result.cast_to(types, types, stream_types, False, __runtime__))
+        # Check if on_tick is provided
+        if 'on_tick' in baml_options:
+            stream = self.stream.TestUnionArrays(input=input,
+                baml_options=baml_options)
+            return stream.get_final_response()
+        else:
+            # Original non-streaming code
+            result = self.__options.merge_options(baml_options).call_function_sync(function_name="TestUnionArrays", args={
+                "input": input,
+            })
+            return typing.cast(types.UnionArrays, result.cast_to(types, types, stream_types, False, __runtime__))
     
 
 

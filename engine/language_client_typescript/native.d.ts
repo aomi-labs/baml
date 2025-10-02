@@ -20,7 +20,7 @@ export declare class BamlImage {
 
 export declare class BamlPdf {
   static fromUrl(url: string): BamlPdf
-  static fromBase64(mediaType: string, base64: string): BamlPdf
+  static fromBase64(base64: string): BamlPdf
   get url(): string | null
   asUrl(): string
   isUrl(): boolean
@@ -33,10 +33,10 @@ export declare class BamlRuntime {
   static fromFiles(rootPath: string, files: Record<string, string>, envVars: Record<string, string | undefined | null>): BamlRuntime
   reset(rootPath: string, files: Record<string, string>, envVars: Record<string, string>): void
   createContextManager(): RuntimeContextManager
-  callFunction(functionName: string, args: { [name: string]: any }, ctx: RuntimeContextManager, tb: TypeBuilder | undefined | null, cb: ClientRegistry | undefined | null, collectors: Array<Collector>, envVars: Record<string, string>): Promise<FunctionResult>
-  callFunctionSync(functionName: string, args: { [name: string]: any }, ctx: RuntimeContextManager, tb: TypeBuilder | undefined | null, cb: ClientRegistry | undefined | null, collectors: Array<Collector>, envVars: Record<string, string>): FunctionResult
-  streamFunction(functionName: string, args: { [name: string]: any }, cb: ((err: any, param: FunctionResult) => void) | undefined, ctx: RuntimeContextManager, tb: TypeBuilder | undefined | null, clientRegistry: ClientRegistry | undefined | null, collectors: Array<Collector>, envVars: Record<string, string>): FunctionResultStream
-  streamFunctionSync(functionName: string, args: { [name: string]: any }, cb: ((err: any, param: FunctionResult) => void) | undefined, ctx: RuntimeContextManager, tb: TypeBuilder | undefined | null, clientRegistry: ClientRegistry | undefined | null, collectors: Array<Collector>, envVars: Record<string, string>): FunctionResultStream
+  callFunction(functionName: string, args: { [name: string]: any }, ctx: RuntimeContextManager, tb: TypeBuilder | undefined | null, cb: ClientRegistry | undefined | null, collectors: Array<Collector>, tags: Record<string, string>, envVars: Record<string, string>, signal?: object | undefined | null): Promise<FunctionResult>
+  callFunctionSync(functionName: string, args: { [name: string]: any }, ctx: RuntimeContextManager, tb: TypeBuilder | undefined | null, cb: ClientRegistry | undefined | null, collectors: Array<Collector>, tags: Record<string, string>, envVars: Record<string, string>, signal?: object | undefined | null): FunctionResult
+  streamFunction(functionName: string, args: { [name: string]: any }, cb: ((err: any, param: FunctionResult) => void) | undefined, ctx: RuntimeContextManager, tb: TypeBuilder | undefined | null, clientRegistry: ClientRegistry | undefined | null, collectors: Array<Collector>, tags: Record<string, string>, envVars: Record<string, string>, signal?: object | undefined | null, onTick?: (() => void) | undefined): FunctionResultStream
+  streamFunctionSync(functionName: string, args: { [name: string]: any }, cb: ((err: any, param: FunctionResult) => void) | undefined, ctx: RuntimeContextManager, tb: TypeBuilder | undefined | null, clientRegistry: ClientRegistry | undefined | null, collectors: Array<Collector>, tags: Record<string, string>, envVars: Record<string, string>, signal?: object | undefined | null, onTick?: (() => void) | undefined): FunctionResultStream
   buildRequest(functionName: string, args: { [name: string]: any }, ctx: RuntimeContextManager, tb: TypeBuilder | undefined | null, cb: ClientRegistry | undefined | null, stream: boolean, envVars: Record<string, string>): Promise<HTTPRequest>
   buildRequestSync(functionName: string, args: { [name: string]: any }, ctx: RuntimeContextManager, tb: TypeBuilder | undefined | null, cb: ClientRegistry | undefined | null, stream: boolean, envVars: Record<string, string>): HTTPRequest
   parseLlmResponse(functionName: string, llmResponse: string, allowPartials: boolean, ctx: RuntimeContextManager, tb: TypeBuilder | undefined | null, cb: ClientRegistry | undefined | null, envVars: Record<string, string>): any
@@ -83,6 +83,7 @@ export declare class ClientRegistry {
 
 export declare class Collector {
   constructor(name?: string | undefined | null)
+  clear(): void
   get logs(): Array<FunctionLog>
   get last(): FunctionLog | null
   id(functionLogId: string): FunctionLog | null
@@ -119,6 +120,7 @@ export declare class FunctionLog {
   get usage(): Usage
   get calls(): (LLMCall | LLMStreamCall)[]
   get rawLlmResponse(): string | null
+  get tags(): unknown
   get selectedCall(): unknown
 }
 
@@ -243,6 +245,7 @@ export declare class Usage {
   toString(): string
   get inputTokens(): number | null
   get outputTokens(): number | null
+  get cachedInputTokens(): number | null
 }
 
 export interface BamlLogEvent {
@@ -253,11 +256,11 @@ export interface BamlLogEvent {
   startTime: string
 }
 
-export declare export declare function get_version(): string
+export declare function get_version(): string
 
-export declare export declare function getLogLevel(): string
+export declare function getLogLevel(): string
 
-export declare export declare function invoke_runtime_cli(params: Array<string>): number
+export declare function invoke_runtime_cli(params: Array<string>): number
 
 export interface LogEventMetadata {
   eventId: string
@@ -265,9 +268,8 @@ export interface LogEventMetadata {
   rootEventId: string
 }
 
-export declare export declare function setLogJsonMode(useJson: boolean): void
+export declare function setLogJsonMode(useJson: boolean): void
 
-export declare export declare function setLogLevel(level: string): void
+export declare function setLogLevel(level: string): void
 
-export declare export declare function setLogMaxChunkLength(length: number): void
-
+export declare function setLogMaxChunkLength(length: number): void

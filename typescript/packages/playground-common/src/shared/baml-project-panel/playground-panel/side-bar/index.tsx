@@ -17,6 +17,8 @@ import {
   SidebarMenuSub,
   SidebarRail,
   SidebarSeparator,
+  SidebarTrigger,
+  useSidebar,
 } from '@baml/ui/sidebar';
 import { useAtomValue } from 'jotai';
 import {
@@ -25,6 +27,8 @@ import {
   ChevronUp,
   FlaskConical,
   Play,
+  Settings,
+  SidebarCloseIcon,
 } from 'lucide-react';
 import * as React from 'react';
 import { selectedItemAtom } from '../atoms';
@@ -34,6 +38,7 @@ import { FunctionItem } from './function-item';
 import { SearchForm } from './search-form';
 import { TestItem } from './test-item';
 import type { FunctionData } from './types';
+import { Button } from '@baml/ui/button';
 
 export { isSidebarOpenAtom };
 
@@ -43,8 +48,9 @@ export function TestingSidebar() {
   const [openCollapsibles, setOpenCollapsibles] = React.useState<Set<string>>(
     new Set(),
   );
-  const runBamlTests = useRunBamlTests();
+  const { runTests: runBamlTests } = useRunBamlTests();
   const selectedItem = useAtomValue(selectedItemAtom);
+
 
   const filteredFunctions = functions.filter(
     (func: FunctionData) =>
@@ -97,7 +103,7 @@ export function TestingSidebar() {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 relative">
               <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
                 <FlaskConical className="size-4" />
               </div>
@@ -105,9 +111,17 @@ export function TestingSidebar() {
                 <span className="font-medium">BAML Tests</span>
               </div>
             </div>
+            <div className='absolute right-0 top-0 xl:hidden'>
+              <SidebarTrigger />
+            </div>
           </SidebarMenuItem>
         </SidebarMenu>
         <SearchForm searchTerm={searchTerm} onSearchChange={setSearchTerm} />
+        {/* <Button variant="ghost" size="sm" className='absolute right-0 top-0 xl:hidden' onClick={() => {
+          
+        }}>
+          <SidebarCloseIcon className="size-4 scale-x-[-1]" />
+        </Button> */}
       </SidebarHeader>
       <SidebarContent>
         <div className="flex-1 min-h-0 overflow-y-auto">
@@ -212,3 +226,4 @@ export function TestingSidebar() {
     </Sidebar>
   );
 }
+

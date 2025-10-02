@@ -48,7 +48,7 @@ impl FunctionResult {
             },
         }
     }
-    
+
     /// Create a function result with metadata
     pub fn with_metadata(data: BamlValue, call_id: String, metadata: FunctionMetadata) -> Self {
         Self {
@@ -57,7 +57,7 @@ impl FunctionResult {
             metadata,
         }
     }
-    
+
     /// Extract the data as a specific type
     pub fn into_data<T>(self) -> BamlResult<T>
     where
@@ -65,17 +65,17 @@ impl FunctionResult {
     {
         crate::types::FromBamlValue::from_baml_value(self.data)
     }
-    
+
     /// Get a reference to the data
     pub fn data(&self) -> &BamlValue {
         &self.data
     }
-    
+
     /// Get the function call ID
     pub fn call_id(&self) -> &str {
         &self.call_id
     }
-    
+
     /// Get the metadata
     pub fn metadata(&self) -> &FunctionMetadata {
         &self.metadata
@@ -94,26 +94,26 @@ impl FunctionMetadata {
             model: None,
         }
     }
-    
+
     /// Set duration
     pub fn with_duration_ms(mut self, duration_ms: u64) -> Self {
         self.duration_ms = duration_ms;
         self
     }
-    
+
     /// Set token counts
     pub fn with_tokens(mut self, input_tokens: u64, output_tokens: u64) -> Self {
         self.input_tokens = Some(input_tokens);
         self.output_tokens = Some(output_tokens);
         self
     }
-    
+
     /// Set cost
     pub fn with_cost_usd(mut self, cost_usd: f64) -> Self {
         self.cost_usd = Some(cost_usd);
         self
     }
-    
+
     /// Set provider and model
     pub fn with_provider_model(mut self, provider: String, model: String) -> Self {
         self.provider = Some(provider);

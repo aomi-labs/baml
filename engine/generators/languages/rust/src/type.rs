@@ -1,5 +1,5 @@
-use baml_types::ir_type::{TypeNonStreaming, TypeValue};
 use crate::package::{CurrentRenderPackage, Package};
+use baml_types::ir_type::{TypeNonStreaming, TypeValue};
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub enum TypeWrapper {
@@ -7,6 +7,7 @@ pub enum TypeWrapper {
     None,
     Checked(Box<TypeWrapper>, Vec<String>),
     Optional(Box<TypeWrapper>),
+    Boxed(Box<TypeWrapper>),
 }
 
 impl TypeWrapper {
@@ -51,12 +52,18 @@ impl TypeMetaRust {
     }
 
     pub fn make_checked(&mut self, names: Vec<String>) -> &mut Self {
-        self.type_wrapper = TypeWrapper::Checked(Box::new(std::mem::take(&mut self.type_wrapper)), names);
+        self.type_wrapper =
+            TypeWrapper::Checked(Box::new(std::mem::take(&mut self.type_wrapper)), names);
         self
     }
 
     pub fn make_optional(&mut self) -> &mut Self {
         self.type_wrapper = TypeWrapper::Optional(Box::new(std::mem::take(&mut self.type_wrapper)));
+        self
+    }
+
+    pub fn make_boxed(&mut self) -> &mut Self {
+        self.type_wrapper = TypeWrapper::Boxed(Box::new(std::mem::take(&mut self.type_wrapper)));
         self
     }
 
@@ -75,12 +82,8 @@ impl WrapType for TypeWrapper {
         let (pkg, orig) = &params;
         match self {
             TypeWrapper::None => orig.clone(),
-            TypeWrapper::Checked(inner, names) => format!(
-                "{}Checked<{}, [{}]>",
-                Package::checked().relative_from(pkg),
-                inner.wrap_type(params),
-                names.iter().map(|n| format!("\"{}\"", n)).collect::<Vec<_>>().join(", ")
-            ),
+            TypeWrapper::Checked(inner, _names) => inner.wrap_type(params),
+            TypeWrapper::Boxed(inner) => format!("Box<{}>", inner.wrap_type(params)),
             TypeWrapper::Optional(inner) => format!("Option<{}>", inner.wrap_type(params)),
         }
     }
@@ -117,12 +120,14 @@ pub enum TypeRust {
     Int(Option<i64>, TypeMetaRust),
     Float(TypeMetaRust),
     Bool(Option<bool>, TypeMetaRust),
+    Null(TypeMetaRust),
     Media(MediaTypeRust, TypeMetaRust),
     // Complex types
     Class {
         package: Package,
         name: String,
         dynamic: bool,
+        needs_box: bool,
         meta: TypeMetaRust,
     },
     Union {
@@ -139,6 +144,7 @@ pub enum TypeRust {
     TypeAlias {
         name: String,
         package: Package,
+        needs_box: bool,
         meta: TypeMetaRust,
     },
     List(Box<TypeRust>, TypeMetaRust),
@@ -154,10 +160,15 @@ impl TypeRust {
     pub fn default_name_within_union(&self) -> String {
         match self {
             TypeRust::String(val, _) => val.as_ref().map_or("String".to_string(), |v| {
-                let safe_name = safe_rust_identifier(v);
-                format!("K{safe_name}")
+                format!("K{}", sanitize_literal_variant(v))
             }),
-            TypeRust::Int(val, _) => val.map_or("Int".to_string(), |v| format!("IntK{v}")),
+            TypeRust::Int(val, _) => val.map_or("Int".to_string(), |v| {
+                if v < 0 {
+                    format!("IntKNeg{}", v.abs())
+                } else {
+                    format!("IntK{}", v)
+                }
+            }),
             TypeRust::Float(_) => "Float".to_string(),
             TypeRust::Bool(val, _) => val.map_or("Bool".to_string(), |v| {
                 format!("BoolK{}", if v { "True" } else { "False" })
@@ -178,6 +189,7 @@ impl TypeRust {
                 key.default_name_within_union(),
                 value.default_name_within_union()
             ),
+            TypeRust::Null(_) => "Null".to_string(),
             TypeRust::Any { .. } => "Any".to_string(),
         }
     }
@@ -195,8 +207,13 @@ impl TypeRust {
             TypeRust::Enum { meta, .. } => meta,
             TypeRust::List(_, meta) => meta,
             TypeRust::Map(_, _, meta) => meta,
+            TypeRust::Null(meta) => meta,
             TypeRust::Any { meta, .. } => meta,
         }
+    }
+
+    pub fn is_string_primitive(&self) -> bool {
+        matches!(self, TypeRust::String(_, _))
     }
 
     pub fn meta_mut(&mut self) -> &mut TypeMetaRust {
@@ -212,7 +229,23 @@ impl TypeRust {
             TypeRust::Enum { meta, .. } => meta,
             TypeRust::List(_, meta) => meta,
             TypeRust::Map(_, _, meta) => meta,
+            TypeRust::Null(meta) => meta,
             TypeRust::Any { meta, .. } => meta,
+        }
+    }
+
+    pub fn is_class_named(&self, target: &str) -> bool {
+        matches!(
+            self,
+            TypeRust::Class { name, .. } | TypeRust::TypeAlias { name, .. } if name == target
+        )
+    }
+
+    pub fn make_boxed(&mut self) {
+        match self {
+            TypeRust::Class { needs_box, .. } => *needs_box = true,
+            TypeRust::TypeAlias { needs_box, .. } => *needs_box = true,
+            _ => {}
         }
     }
 
@@ -221,16 +254,33 @@ impl TypeRust {
         self
     }
 
+    pub fn serialize_type_with_turbofish(&self, pkg: &CurrentRenderPackage) -> String {
+        let type_str = self.serialize_type(pkg);
+        if type_str.contains("::<") {
+            return type_str;
+        }
+        if let Some(idx) = type_str.find('<') {
+            let (prefix, rest) = type_str.split_at(idx);
+            if prefix.ends_with("::") {
+                type_str
+            } else {
+                format!("{}::{}", prefix, rest)
+            }
+        } else {
+            type_str
+        }
+    }
+
     pub fn default_value(&self, pkg: &CurrentRenderPackage) -> String {
         if matches!(self.meta().type_wrapper, TypeWrapper::Optional(_)) {
             return "None".to_string();
         }
         if matches!(self.meta().type_wrapper, TypeWrapper::Checked(_, _)) {
-            return format!("{}::default()", self.serialize_type(pkg));
+            return default_call(self.serialize_type(pkg));
         }
         match self {
             TypeRust::String(val, _) => val.as_ref().map_or("String::new()".to_string(), |v| {
-                format!("\"{}\"", v.replace("\"", "\\\"")).to_string()
+                format!("String::from(\"{}\")", v.replace("\"", "\\\""))
             }),
             TypeRust::Int(val, _) => val.map_or("0".to_string(), |v| format!("{v}")),
             TypeRust::Float(_) => "0.0".to_string(),
@@ -238,18 +288,39 @@ impl TypeRust {
                 if v { "true" } else { "false" }.to_string()
             }),
             TypeRust::Media(..) | TypeRust::Class { .. } | TypeRust::Union { .. } => {
-                format!("{}::default()", self.serialize_type(pkg))
+                default_call(self.serialize_type(pkg))
             }
-            TypeRust::Enum { .. } => {
-                format!("{}::default()", self.serialize_type(pkg))
-            }
-            TypeRust::TypeAlias { .. } => {
-                format!("{}::default()", self.serialize_type(pkg))
-            }
+            TypeRust::Enum { .. } => default_call(self.serialize_type(pkg)),
+            TypeRust::TypeAlias { .. } => default_call(self.serialize_type(pkg)),
             TypeRust::List(..) => "Vec::new()".to_string(),
             TypeRust::Map(..) => "std::collections::HashMap::new()".to_string(),
+            TypeRust::Null(_) => format!("{}NullValue", Package::types().relative_from(pkg)),
             TypeRust::Any { .. } => "serde_json::Value::Null".to_string(),
         }
+    }
+}
+
+fn default_call(type_str: String) -> String {
+    if let Some(inner) = type_str
+        .strip_prefix("Box<")
+        .and_then(|s| s.strip_suffix('>'))
+    {
+        format!("Box::<{}>::default()", inner)
+    } else {
+        format!("{}::default()", type_str)
+    }
+}
+
+fn sanitize_literal_variant(value: &str) -> String {
+    let filtered: String = value
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect();
+    let pascal = crate::utils::to_pascal_case(&filtered);
+    if pascal.is_empty() {
+        "Value".to_string()
+    } else {
+        pascal
     }
 }
 
@@ -266,16 +337,38 @@ impl SerializeType for TypeRust {
             TypeRust::Float(_) => "f64".to_string(),
             TypeRust::Bool(..) => "bool".to_string(),
             TypeRust::Media(media, _) => media.serialize_type(pkg),
-            TypeRust::Class { package, name, .. } => {
-                format!("{}{}", package.relative_from(pkg), name)
+            TypeRust::Class {
+                package,
+                name,
+                needs_box,
+                ..
+            } => {
+                let path = format!("{}{}", package.relative_from(pkg), name);
+                if *needs_box {
+                    format!("Box<{}>", path)
+                } else {
+                    path
+                }
             }
-            TypeRust::TypeAlias { package, name, .. } => {
-                format!("{}{}", package.relative_from(pkg), name)
+            TypeRust::TypeAlias {
+                package,
+                name,
+                needs_box,
+                ..
+            } => {
+                let path = format!("{}{}", package.relative_from(pkg), name);
+                if *needs_box {
+                    format!("Box<{}>", path)
+                } else {
+                    path
+                }
             }
             TypeRust::Union { package, name, .. } => {
                 format!("{}{}", package.relative_from(pkg), name)
             }
-            TypeRust::Enum { package, name, .. } => format!("{}{}", package.relative_from(pkg), name),
+            TypeRust::Enum { package, name, .. } => {
+                format!("{}{}", package.relative_from(pkg), name)
+            }
             TypeRust::List(inner, _) => format!("Vec<{}>", inner.serialize_type(pkg)),
             TypeRust::Map(key, value, _) => {
                 format!(
@@ -284,6 +377,7 @@ impl SerializeType for TypeRust {
                     value.serialize_type(pkg)
                 )
             }
+            TypeRust::Null(_) => format!("{}NullValue", Package::types().relative_from(pkg)),
             TypeRust::Any { .. } => "serde_json::Value".to_string(),
         };
 
@@ -299,16 +393,6 @@ impl SerializeType for MediaTypeRust {
             MediaTypeRust::Pdf => format!("{}BamlPdf", Package::types().relative_from(pkg)),
             MediaTypeRust::Video => format!("{}BamlVideo", Package::types().relative_from(pkg)),
         }
-    }
-}
-
-fn safe_rust_identifier(name: &str) -> String {
-    // Replace non-alphanumeric characters with underscores and ensure valid Rust identifier
-    let cleaned = name.replace(|c: char| !c.is_alphanumeric(), "_");
-    if cleaned.is_empty() || cleaned.chars().next().unwrap().is_numeric() {
-        format!("_{}", cleaned)
-    } else {
-        cleaned
     }
 }
 
@@ -332,7 +416,9 @@ pub fn to_rust_type(ty: &TypeNonStreaming) -> String {
         TypeNonStreaming::Class { name, .. } => name.clone(),
         TypeNonStreaming::Enum { name, .. } => name.clone(),
         TypeNonStreaming::List(inner, _) => format!("Vec<{}>", to_rust_type(inner)),
-        TypeNonStreaming::Map(_, value, _) => format!("std::collections::HashMap<String, {}>", to_rust_type(value)),
+        TypeNonStreaming::Map(_, value, _) => {
+            format!("std::collections::HashMap<String, {}>", to_rust_type(value))
+        }
         TypeNonStreaming::Union(_inner, _) => {
             // TODO: This should use the new union type generation
             "serde_json::Value".to_string()
@@ -345,6 +431,8 @@ pub fn to_rust_type(ty: &TypeNonStreaming) -> String {
         TypeNonStreaming::Tuple(_, _) => "serde_json::Value".to_string(), // Fallback for tuples
         TypeNonStreaming::RecursiveTypeAlias { .. } => "serde_json::Value".to_string(), // Fallback
         TypeNonStreaming::Arrow(_, _) => "serde_json::Value".to_string(), // Fallback for function types
+        // TODO(Cecilia): actually deal with this
+        TypeNonStreaming::Top(_) => "serde_json::Value".to_string(), // Fallback for top type
     }
 }
 

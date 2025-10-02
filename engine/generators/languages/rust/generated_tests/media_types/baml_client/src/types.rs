@@ -13,27 +13,174 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Represents the BAML `null` type in Rust
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct NullValue;
+
+impl baml_client_rust::types::ToBamlValue for NullValue {
+    fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+        Ok(baml_client_rust::types::BamlValue::Null)
+    }
+}
+
+impl baml_client_rust::types::FromBamlValue for NullValue {
+    fn from_baml_value(
+        value: baml_client_rust::types::BamlValue,
+    ) -> baml_client_rust::BamlResult<Self> {
+        match value {
+            baml_client_rust::types::BamlValue::Null => Ok(NullValue),
+            other => Err(baml_client_rust::BamlError::deserialization(format!(
+                "Expected null, got {:?}",
+                other
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum RustLiteralKind {
+    String,
+    Int,
+    Bool,
+}
+
+macro_rules! define_baml_media_type {
+    ($name:ident, $variant:ident) => {
+        #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+        #[serde(transparent)]
+        pub struct $name {
+            inner: baml_types::BamlMedia,
+        }
+
+        impl $name {
+            pub fn new(media: baml_types::BamlMedia) -> baml_client_rust::BamlResult<Self> {
+                if media.media_type == baml_types::BamlMediaType::$variant {
+                    Ok(Self { inner: media })
+                } else {
+                    Err(baml_client_rust::BamlError::deserialization(format!(
+                        "Expected {:?} media, got {:?}",
+                        baml_types::BamlMediaType::$variant,
+                        media.media_type
+                    )))
+                }
+            }
+
+            pub fn from_url(url: impl Into<String>, mime_type: Option<String>) -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::url(
+                        baml_types::BamlMediaType::$variant,
+                        url.into(),
+                        mime_type,
+                    ),
+                }
+            }
+
+            pub fn from_base64(base64: impl Into<String>, mime_type: Option<String>) -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::base64(
+                        baml_types::BamlMediaType::$variant,
+                        base64.into(),
+                        mime_type,
+                    ),
+                }
+            }
+
+            pub fn into_inner(self) -> baml_types::BamlMedia {
+                self.inner
+            }
+
+            pub fn as_inner(&self) -> &baml_types::BamlMedia {
+                &self.inner
+            }
+        }
+
+        impl TryFrom<baml_types::BamlMedia> for $name {
+            type Error = baml_client_rust::BamlError;
+
+            fn try_from(media: baml_types::BamlMedia) -> std::result::Result<Self, Self::Error> {
+                Self::new(media)
+            }
+        }
+
+        impl From<$name> for baml_types::BamlMedia {
+            fn from(value: $name) -> Self {
+                value.inner
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self {
+                    inner: baml_types::BamlMedia::base64(
+                        baml_types::BamlMediaType::$variant,
+                        String::new(),
+                        None,
+                    ),
+                }
+            }
+        }
+
+        impl baml_client_rust::types::ToBamlValue for $name {
+            fn to_baml_value(
+                self,
+            ) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+                Ok(baml_client_rust::types::BamlValue::Media(self.inner))
+            }
+        }
+
+        impl baml_client_rust::types::FromBamlValue for $name {
+            fn from_baml_value(
+                value: baml_client_rust::types::BamlValue,
+            ) -> baml_client_rust::BamlResult<Self> {
+                match value {
+                    baml_client_rust::types::BamlValue::Media(media) => {
+                        if media.media_type == baml_types::BamlMediaType::$variant {
+                            Ok(Self { inner: media })
+                        } else {
+                            Err(baml_client_rust::BamlError::deserialization(format!(
+                                "Expected {:?} media, got {:?}",
+                                baml_types::BamlMediaType::$variant,
+                                media.media_type
+                            )))
+                        }
+                    }
+                    other => Err(baml_client_rust::BamlError::deserialization(format!(
+                        "Expected media value, got {:?}",
+                        other
+                    ))),
+                }
+            }
+        }
+    };
+}
+
+define_baml_media_type!(BamlImage, Image);
+define_baml_media_type!(BamlAudio, Audio);
+define_baml_media_type!(BamlPdf, Pdf);
+define_baml_media_type!(BamlVideo, Video);
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MediaAnalysisResult {
-    pub topics: String,
+    pub topics: Vec<String>,
 
-    pub analysisText: String,
+    pub analysis_text: String,
 }
 
 impl MediaAnalysisResult {
     /// Create a new MediaAnalysisResult instance
-    pub fn new(topics: String, analysisText: String) -> Self {
+    pub fn new(topics: Vec<String>, analysis_text: String) -> Self {
         Self {
             topics,
-            analysisText,
+            analysis_text,
         }
     }
 }
 
 impl Default for MediaAnalysisResult {
     fn default() -> Self {
-        Self::new(String::new(), String::new())
+        Self::new(Vec::new(), String::new())
     }
 }
 
@@ -44,7 +191,7 @@ impl baml_client_rust::types::ToBamlValue for MediaAnalysisResult {
         map.insert("topics".to_string(), self.topics.to_baml_value()?);
         map.insert(
             "analysisText".to_string(),
-            self.analysisText.to_baml_value()?,
+            self.analysis_text.to_baml_value()?,
         );
         Ok(baml_client_rust::types::BamlValue::Class(
             "MediaAnalysisResult".to_string(),
@@ -59,27 +206,43 @@ impl baml_client_rust::types::FromBamlValue for MediaAnalysisResult {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let topics = map
-                    .get("topics")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let topics = match map.get("topics") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'topics' in MediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let analysisText = map
-                    .get("analysisText")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let analysis_text = match map.get("analysisText") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'analysisText' in MediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                Ok(Self::new(topics, analysisText))
+                        )));
+                    }
+                };
+                Ok(Self::new(topics, analysis_text))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
                 "Expected class, got {:?}",
@@ -89,26 +252,26 @@ impl baml_client_rust::types::FromBamlValue for MediaAnalysisResult {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MediaArrayAnalysisResult {
-    pub analysisText: String,
+    pub analysis_text: String,
 
-    pub mediaCount: String,
+    pub media_count: i64,
 }
 
 impl MediaArrayAnalysisResult {
     /// Create a new MediaArrayAnalysisResult instance
-    pub fn new(analysisText: String, mediaCount: String) -> Self {
+    pub fn new(analysis_text: String, media_count: i64) -> Self {
         Self {
-            analysisText,
-            mediaCount,
+            analysis_text,
+            media_count,
         }
     }
 }
 
 impl Default for MediaArrayAnalysisResult {
     fn default() -> Self {
-        Self::new(String::new(), String::new())
+        Self::new(String::new(), 0)
     }
 }
 
@@ -118,9 +281,9 @@ impl baml_client_rust::types::ToBamlValue for MediaArrayAnalysisResult {
         let mut map = baml_client_rust::types::BamlMap::new();
         map.insert(
             "analysisText".to_string(),
-            self.analysisText.to_baml_value()?,
+            self.analysis_text.to_baml_value()?,
         );
-        map.insert("mediaCount".to_string(), self.mediaCount.to_baml_value()?);
+        map.insert("mediaCount".to_string(), self.media_count.to_baml_value()?);
         Ok(baml_client_rust::types::BamlValue::Class(
             "MediaArrayAnalysisResult".to_string(),
             map,
@@ -134,27 +297,43 @@ impl baml_client_rust::types::FromBamlValue for MediaArrayAnalysisResult {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let analysisText = map
-                    .get("analysisText")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let analysis_text = match map.get("analysisText") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'analysisText' in MediaArrayAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let mediaCount = map
-                    .get("mediaCount")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let media_count = match map.get("mediaCount") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'mediaCount' in MediaArrayAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                Ok(Self::new(analysisText, mediaCount))
+                        )));
+                    }
+                };
+                Ok(Self::new(analysis_text, media_count))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
                 "Expected class, got {:?}",
@@ -164,21 +343,21 @@ impl baml_client_rust::types::FromBamlValue for MediaArrayAnalysisResult {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MediaMapAnalysisResult {
-    pub analysisText: String,
+    pub analysis_text: String,
 
-    pub keyCount: String,
+    pub key_count: i64,
 
-    pub keys: String,
+    pub keys: Vec<String>,
 }
 
 impl MediaMapAnalysisResult {
     /// Create a new MediaMapAnalysisResult instance
-    pub fn new(analysisText: String, keyCount: String, keys: String) -> Self {
+    pub fn new(analysis_text: String, key_count: i64, keys: Vec<String>) -> Self {
         Self {
-            analysisText,
-            keyCount,
+            analysis_text,
+            key_count,
             keys,
         }
     }
@@ -186,7 +365,7 @@ impl MediaMapAnalysisResult {
 
 impl Default for MediaMapAnalysisResult {
     fn default() -> Self {
-        Self::new(String::new(), String::new(), String::new())
+        Self::new(String::new(), 0, Vec::new())
     }
 }
 
@@ -196,9 +375,9 @@ impl baml_client_rust::types::ToBamlValue for MediaMapAnalysisResult {
         let mut map = baml_client_rust::types::BamlMap::new();
         map.insert(
             "analysisText".to_string(),
-            self.analysisText.to_baml_value()?,
+            self.analysis_text.to_baml_value()?,
         );
-        map.insert("keyCount".to_string(), self.keyCount.to_baml_value()?);
+        map.insert("keyCount".to_string(), self.key_count.to_baml_value()?);
         map.insert("keys".to_string(), self.keys.to_baml_value()?);
         Ok(baml_client_rust::types::BamlValue::Class(
             "MediaMapAnalysisResult".to_string(),
@@ -213,37 +392,61 @@ impl baml_client_rust::types::FromBamlValue for MediaMapAnalysisResult {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let analysisText = map
-                    .get("analysisText")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let analysis_text = match map.get("analysisText") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'analysisText' in MediaMapAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let keyCount = map
-                    .get("keyCount")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let key_count = match map.get("keyCount") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'keyCount' in MediaMapAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let keys = map
-                    .get("keys")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let keys = match map.get("keys") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'keys' in MediaMapAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                Ok(Self::new(analysisText, keyCount, keys))
+                        )));
+                    }
+                };
+                Ok(Self::new(analysis_text, key_count, keys))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
                 "Expected class, got {:?}",
@@ -253,23 +456,23 @@ impl baml_client_rust::types::FromBamlValue for MediaMapAnalysisResult {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MixedMediaAnalysisResult {
     pub title: String,
 
     pub description: String,
 
-    pub hasImage: String,
+    pub has_image: bool,
 
-    pub hasVideo: String,
+    pub has_video: bool,
 
-    pub hasAudio: String,
+    pub has_audio: bool,
 
-    pub hasPdf: String,
+    pub has_pdf: bool,
 
-    pub additionalImageCount: String,
+    pub additional_image_count: i64,
 
-    pub metadataKeys: String,
+    pub metadata_keys: Vec<String>,
 }
 
 impl MixedMediaAnalysisResult {
@@ -277,22 +480,22 @@ impl MixedMediaAnalysisResult {
     pub fn new(
         title: String,
         description: String,
-        hasImage: String,
-        hasVideo: String,
-        hasAudio: String,
-        hasPdf: String,
-        additionalImageCount: String,
-        metadataKeys: String,
+        has_image: bool,
+        has_video: bool,
+        has_audio: bool,
+        has_pdf: bool,
+        additional_image_count: i64,
+        metadata_keys: Vec<String>,
     ) -> Self {
         Self {
             title,
             description,
-            hasImage,
-            hasVideo,
-            hasAudio,
-            hasPdf,
-            additionalImageCount,
-            metadataKeys,
+            has_image,
+            has_video,
+            has_audio,
+            has_pdf,
+            additional_image_count,
+            metadata_keys,
         }
     }
 }
@@ -302,12 +505,12 @@ impl Default for MixedMediaAnalysisResult {
         Self::new(
             String::new(),
             String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
+            false,
+            false,
+            false,
+            false,
+            0,
+            Vec::new(),
         )
     }
 }
@@ -318,17 +521,17 @@ impl baml_client_rust::types::ToBamlValue for MixedMediaAnalysisResult {
         let mut map = baml_client_rust::types::BamlMap::new();
         map.insert("title".to_string(), self.title.to_baml_value()?);
         map.insert("description".to_string(), self.description.to_baml_value()?);
-        map.insert("hasImage".to_string(), self.hasImage.to_baml_value()?);
-        map.insert("hasVideo".to_string(), self.hasVideo.to_baml_value()?);
-        map.insert("hasAudio".to_string(), self.hasAudio.to_baml_value()?);
-        map.insert("hasPdf".to_string(), self.hasPdf.to_baml_value()?);
+        map.insert("hasImage".to_string(), self.has_image.to_baml_value()?);
+        map.insert("hasVideo".to_string(), self.has_video.to_baml_value()?);
+        map.insert("hasAudio".to_string(), self.has_audio.to_baml_value()?);
+        map.insert("hasPdf".to_string(), self.has_pdf.to_baml_value()?);
         map.insert(
             "additionalImageCount".to_string(),
-            self.additionalImageCount.to_baml_value()?,
+            self.additional_image_count.to_baml_value()?,
         );
         map.insert(
             "metadataKeys".to_string(),
-            self.metadataKeys.to_baml_value()?,
+            self.metadata_keys.to_baml_value()?,
         );
         Ok(baml_client_rust::types::BamlValue::Class(
             "MixedMediaAnalysisResult".to_string(),
@@ -343,95 +546,159 @@ impl baml_client_rust::types::FromBamlValue for MixedMediaAnalysisResult {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let title = map
-                    .get("title")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let title = match map.get("title") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'title' in MixedMediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let description = map
-                    .get("description")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let description = match map.get("description") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'description' in MixedMediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let hasImage = map
-                    .get("hasImage")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let has_image = match map.get("hasImage") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            false
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => false,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'hasImage' in MixedMediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let hasVideo = map
-                    .get("hasVideo")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let has_video = match map.get("hasVideo") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            false
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => false,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'hasVideo' in MixedMediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let hasAudio = map
-                    .get("hasAudio")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let has_audio = match map.get("hasAudio") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            false
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => false,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'hasAudio' in MixedMediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let hasPdf = map
-                    .get("hasPdf")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let has_pdf = match map.get("hasPdf") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            false
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => false,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'hasPdf' in MixedMediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let additionalImageCount = map
-                    .get("additionalImageCount")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let additional_image_count = match map.get("additionalImageCount") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            0
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => 0,
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'additionalImageCount' in MixedMediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let metadataKeys = map
-                    .get("metadataKeys")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let metadata_keys = match map.get("metadataKeys") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'metadataKeys' in MixedMediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(
                     title,
                     description,
-                    hasImage,
-                    hasVideo,
-                    hasAudio,
-                    hasPdf,
-                    additionalImageCount,
-                    metadataKeys,
+                    has_image,
+                    has_video,
+                    has_audio,
+                    has_pdf,
+                    additional_image_count,
+                    metadata_keys,
                 ))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -442,33 +709,33 @@ impl baml_client_rust::types::FromBamlValue for MixedMediaAnalysisResult {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OptionalMediaAnalysisResult {
-    pub analysisText: String,
+    pub analysis_text: String,
 
-    pub providedMediaTypes: String,
+    pub provided_media_types: Vec<String>,
 
-    pub missingMediaTypes: String,
+    pub missing_media_types: Vec<String>,
 }
 
 impl OptionalMediaAnalysisResult {
     /// Create a new OptionalMediaAnalysisResult instance
     pub fn new(
-        analysisText: String,
-        providedMediaTypes: String,
-        missingMediaTypes: String,
+        analysis_text: String,
+        provided_media_types: Vec<String>,
+        missing_media_types: Vec<String>,
     ) -> Self {
         Self {
-            analysisText,
-            providedMediaTypes,
-            missingMediaTypes,
+            analysis_text,
+            provided_media_types,
+            missing_media_types,
         }
     }
 }
 
 impl Default for OptionalMediaAnalysisResult {
     fn default() -> Self {
-        Self::new(String::new(), String::new(), String::new())
+        Self::new(String::new(), Vec::new(), Vec::new())
     }
 }
 
@@ -478,15 +745,15 @@ impl baml_client_rust::types::ToBamlValue for OptionalMediaAnalysisResult {
         let mut map = baml_client_rust::types::BamlMap::new();
         map.insert(
             "analysisText".to_string(),
-            self.analysisText.to_baml_value()?,
+            self.analysis_text.to_baml_value()?,
         );
         map.insert(
             "providedMediaTypes".to_string(),
-            self.providedMediaTypes.to_baml_value()?,
+            self.provided_media_types.to_baml_value()?,
         );
         map.insert(
             "missingMediaTypes".to_string(),
-            self.missingMediaTypes.to_baml_value()?,
+            self.missing_media_types.to_baml_value()?,
         );
         Ok(baml_client_rust::types::BamlValue::Class(
             "OptionalMediaAnalysisResult".to_string(),
@@ -501,40 +768,64 @@ impl baml_client_rust::types::FromBamlValue for OptionalMediaAnalysisResult {
     ) -> baml_client_rust::BamlResult<Self> {
         match value {
             baml_client_rust::types::BamlValue::Class(_class_name, map) => {
-                let analysisText = map
-                    .get("analysisText")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                let analysis_text = match map.get("analysisText") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            String::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => String::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'analysisText' in OptionalMediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let providedMediaTypes = map
-                    .get("providedMediaTypes")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let provided_media_types = match map.get("providedMediaTypes") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'providedMediaTypes' in OptionalMediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
-                let missingMediaTypes = map
-                    .get("missingMediaTypes")
-                    .ok_or_else(|| {
-                        baml_client_rust::BamlError::deserialization(format!(
+                        )));
+                    }
+                };
+                let missing_media_types = match map.get("missingMediaTypes") {
+                    Some(value) => match value {
+                        baml_client_rust::types::BamlValue::Null
+                            if baml_client_rust::types::is_partial_deserialization() =>
+                        {
+                            Vec::new()
+                        }
+                        _ => {
+                            baml_client_rust::types::FromBamlValue::from_baml_value(value.clone())?
+                        }
+                    },
+                    None if baml_client_rust::types::is_partial_deserialization() => Vec::new(),
+                    None => {
+                        return Err(baml_client_rust::BamlError::deserialization(format!(
                             "Missing field 'missingMediaTypes' in OptionalMediaAnalysisResult"
-                        ))
-                    })
-                    .and_then(|v| {
-                        baml_client_rust::types::FromBamlValue::from_baml_value(v.clone())
-                    })?;
+                        )));
+                    }
+                };
                 Ok(Self::new(
-                    analysisText,
-                    providedMediaTypes,
-                    missingMediaTypes,
+                    analysis_text,
+                    provided_media_types,
+                    missing_media_types,
                 ))
             }
             _ => Err(baml_client_rust::BamlError::deserialization(format!(
@@ -548,143 +839,143 @@ impl baml_client_rust::types::FromBamlValue for OptionalMediaAnalysisResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Union4AudioOrImageOrPdfOrVideo {
-    Media0(crate::types::BamlImage),
-    Media1(crate::types::BamlAudio),
-    Media2(crate::types::BamlPdf),
-    Media3(crate::types::BamlVideo),
+    Image(crate::types::BamlImage),
+    Audio(crate::types::BamlAudio),
+    Pdf(crate::types::BamlPdf),
+    Video(crate::types::BamlVideo),
 }
 
 impl Union4AudioOrImageOrPdfOrVideo {
-    /// Check if this union is a Media0 variant
-    pub fn is_media0(&self) -> bool {
-        matches!(self, Self::Media0(_))
+    /// Check if this union is a Image variant
+    pub fn is_image(&self) -> bool {
+        matches!(self, Self::Image(_))
     }
-    /// Get the Media0 value if this union contains it
-    pub fn as_media0(&self) -> Option<&crate::types::BamlImage> {
+    /// Get the Image value if this union contains it
+    pub fn as_image(&self) -> Option<&crate::types::BamlImage> {
         match self {
-            Self::Media0(v) => Some(v),
+            Self::Image(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Extract the Media0 value, consuming the union
-    pub fn into_media0(self) -> Option<crate::types::BamlImage> {
+    /// Extract the Image value, consuming the union
+    pub fn into_image(self) -> Option<crate::types::BamlImage> {
         match self {
-            Self::Media0(v) => Some(v),
+            Self::Image(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Get a mutable reference to the Media0 value if this union contains it
-    pub fn as_media0_mut(&mut self) -> Option<&mut crate::types::BamlImage> {
+    /// Get a mutable reference to the Image value if this union contains it
+    pub fn as_image_mut(&mut self) -> Option<&mut crate::types::BamlImage> {
         match self {
-            Self::Media0(v) => Some(v),
+            Self::Image(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Create a new Union4AudioOrImageOrPdfOrVideo with a Media0 variant
-    pub fn media0(value: crate::types::BamlImage) -> Self {
-        Self::Media0(value)
+    /// Create a new Union4AudioOrImageOrPdfOrVideo with a Image variant
+    pub fn image(value: crate::types::BamlImage) -> Self {
+        Self::Image(value)
     }
 
-    /// Check if this union is a Media1 variant
-    pub fn is_media1(&self) -> bool {
-        matches!(self, Self::Media1(_))
+    /// Check if this union is a Audio variant
+    pub fn is_audio(&self) -> bool {
+        matches!(self, Self::Audio(_))
     }
-    /// Get the Media1 value if this union contains it
-    pub fn as_media1(&self) -> Option<&crate::types::BamlAudio> {
+    /// Get the Audio value if this union contains it
+    pub fn as_audio(&self) -> Option<&crate::types::BamlAudio> {
         match self {
-            Self::Media1(v) => Some(v),
+            Self::Audio(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Extract the Media1 value, consuming the union
-    pub fn into_media1(self) -> Option<crate::types::BamlAudio> {
+    /// Extract the Audio value, consuming the union
+    pub fn into_audio(self) -> Option<crate::types::BamlAudio> {
         match self {
-            Self::Media1(v) => Some(v),
+            Self::Audio(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Get a mutable reference to the Media1 value if this union contains it
-    pub fn as_media1_mut(&mut self) -> Option<&mut crate::types::BamlAudio> {
+    /// Get a mutable reference to the Audio value if this union contains it
+    pub fn as_audio_mut(&mut self) -> Option<&mut crate::types::BamlAudio> {
         match self {
-            Self::Media1(v) => Some(v),
+            Self::Audio(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Create a new Union4AudioOrImageOrPdfOrVideo with a Media1 variant
-    pub fn media1(value: crate::types::BamlAudio) -> Self {
-        Self::Media1(value)
+    /// Create a new Union4AudioOrImageOrPdfOrVideo with a Audio variant
+    pub fn audio(value: crate::types::BamlAudio) -> Self {
+        Self::Audio(value)
     }
 
-    /// Check if this union is a Media2 variant
-    pub fn is_media2(&self) -> bool {
-        matches!(self, Self::Media2(_))
+    /// Check if this union is a Pdf variant
+    pub fn is_pdf(&self) -> bool {
+        matches!(self, Self::Pdf(_))
     }
-    /// Get the Media2 value if this union contains it
-    pub fn as_media2(&self) -> Option<&crate::types::BamlPdf> {
+    /// Get the Pdf value if this union contains it
+    pub fn as_pdf(&self) -> Option<&crate::types::BamlPdf> {
         match self {
-            Self::Media2(v) => Some(v),
+            Self::Pdf(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Extract the Media2 value, consuming the union
-    pub fn into_media2(self) -> Option<crate::types::BamlPdf> {
+    /// Extract the Pdf value, consuming the union
+    pub fn into_pdf(self) -> Option<crate::types::BamlPdf> {
         match self {
-            Self::Media2(v) => Some(v),
+            Self::Pdf(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Get a mutable reference to the Media2 value if this union contains it
-    pub fn as_media2_mut(&mut self) -> Option<&mut crate::types::BamlPdf> {
+    /// Get a mutable reference to the Pdf value if this union contains it
+    pub fn as_pdf_mut(&mut self) -> Option<&mut crate::types::BamlPdf> {
         match self {
-            Self::Media2(v) => Some(v),
+            Self::Pdf(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Create a new Union4AudioOrImageOrPdfOrVideo with a Media2 variant
-    pub fn media2(value: crate::types::BamlPdf) -> Self {
-        Self::Media2(value)
+    /// Create a new Union4AudioOrImageOrPdfOrVideo with a Pdf variant
+    pub fn pdf(value: crate::types::BamlPdf) -> Self {
+        Self::Pdf(value)
     }
 
-    /// Check if this union is a Media3 variant
-    pub fn is_media3(&self) -> bool {
-        matches!(self, Self::Media3(_))
+    /// Check if this union is a Video variant
+    pub fn is_video(&self) -> bool {
+        matches!(self, Self::Video(_))
     }
-    /// Get the Media3 value if this union contains it
-    pub fn as_media3(&self) -> Option<&crate::types::BamlVideo> {
+    /// Get the Video value if this union contains it
+    pub fn as_video(&self) -> Option<&crate::types::BamlVideo> {
         match self {
-            Self::Media3(v) => Some(v),
+            Self::Video(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Extract the Media3 value, consuming the union
-    pub fn into_media3(self) -> Option<crate::types::BamlVideo> {
+    /// Extract the Video value, consuming the union
+    pub fn into_video(self) -> Option<crate::types::BamlVideo> {
         match self {
-            Self::Media3(v) => Some(v),
+            Self::Video(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Get a mutable reference to the Media3 value if this union contains it
-    pub fn as_media3_mut(&mut self) -> Option<&mut crate::types::BamlVideo> {
+    /// Get a mutable reference to the Video value if this union contains it
+    pub fn as_video_mut(&mut self) -> Option<&mut crate::types::BamlVideo> {
         match self {
-            Self::Media3(v) => Some(v),
+            Self::Video(v) => Some(v),
             _ => None,
         }
     }
 
-    /// Create a new Union4AudioOrImageOrPdfOrVideo with a Media3 variant
-    pub fn media3(value: crate::types::BamlVideo) -> Self {
-        Self::Media3(value)
+    /// Create a new Union4AudioOrImageOrPdfOrVideo with a Video variant
+    pub fn video(value: crate::types::BamlVideo) -> Self {
+        Self::Video(value)
     }
 }
 
@@ -693,32 +984,32 @@ impl Union4AudioOrImageOrPdfOrVideo {
     /// Match on the union variant and apply the corresponding function
     pub fn match_variant<T>(
         &self,
-        media0: impl FnOnce(&crate::types::BamlImage) -> T,
-        media1: impl FnOnce(&crate::types::BamlAudio) -> T,
-        media2: impl FnOnce(&crate::types::BamlPdf) -> T,
-        media3: impl FnOnce(&crate::types::BamlVideo) -> T,
+        image: impl FnOnce(&crate::types::BamlImage) -> T,
+        audio: impl FnOnce(&crate::types::BamlAudio) -> T,
+        pdf: impl FnOnce(&crate::types::BamlPdf) -> T,
+        video: impl FnOnce(&crate::types::BamlVideo) -> T,
     ) -> T {
         match self {
-            Self::Media0(v) => media0(v),
-            Self::Media1(v) => media1(v),
-            Self::Media2(v) => media2(v),
-            Self::Media3(v) => media3(v),
+            Self::Image(v) => image(v),
+            Self::Audio(v) => audio(v),
+            Self::Pdf(v) => pdf(v),
+            Self::Video(v) => video(v),
         }
     }
 
     /// Match on the union variant and apply the corresponding function, consuming the union
     pub fn match_variant_owned<T>(
         self,
-        media0: impl FnOnce(crate::types::BamlImage) -> T,
-        media1: impl FnOnce(crate::types::BamlAudio) -> T,
-        media2: impl FnOnce(crate::types::BamlPdf) -> T,
-        media3: impl FnOnce(crate::types::BamlVideo) -> T,
+        image: impl FnOnce(crate::types::BamlImage) -> T,
+        audio: impl FnOnce(crate::types::BamlAudio) -> T,
+        pdf: impl FnOnce(crate::types::BamlPdf) -> T,
+        video: impl FnOnce(crate::types::BamlVideo) -> T,
     ) -> T {
         match self {
-            Self::Media0(v) => media0(v),
-            Self::Media1(v) => media1(v),
-            Self::Media2(v) => media2(v),
-            Self::Media3(v) => media3(v),
+            Self::Image(v) => image(v),
+            Self::Audio(v) => audio(v),
+            Self::Pdf(v) => pdf(v),
+            Self::Video(v) => video(v),
         }
     }
 }
@@ -727,10 +1018,56 @@ impl Union4AudioOrImageOrPdfOrVideo {
 impl std::fmt::Display for Union4AudioOrImageOrPdfOrVideo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Media0(v) => write!(f, "Media0({:?})", v),
-            Self::Media1(v) => write!(f, "Media1({:?})", v),
-            Self::Media2(v) => write!(f, "Media2({:?})", v),
-            Self::Media3(v) => write!(f, "Media3({:?})", v),
+            Self::Image(v) => write!(f, "Image({:?})", v),
+            Self::Audio(v) => write!(f, "Audio({:?})", v),
+            Self::Pdf(v) => write!(f, "Pdf({:?})", v),
+            Self::Video(v) => write!(f, "Video({:?})", v),
         }
+    }
+}
+
+impl Default for Union4AudioOrImageOrPdfOrVideo {
+    fn default() -> Self {
+        Self::Image(crate::types::BamlImage::default())
+    }
+}
+
+// BAML trait implementations
+impl baml_client_rust::types::ToBamlValue for Union4AudioOrImageOrPdfOrVideo {
+    fn to_baml_value(self) -> baml_client_rust::BamlResult<baml_client_rust::types::BamlValue> {
+        match self {
+            Self::Image(v) => v.to_baml_value(),
+            Self::Audio(v) => v.to_baml_value(),
+            Self::Pdf(v) => v.to_baml_value(),
+            Self::Video(v) => v.to_baml_value(),
+        }
+    }
+}
+
+impl baml_client_rust::types::FromBamlValue for Union4AudioOrImageOrPdfOrVideo {
+    fn from_baml_value(
+        value: baml_client_rust::types::BamlValue,
+    ) -> baml_client_rust::BamlResult<Self> {
+        // Try Image variant
+        if let Ok(variant_value) = crate::types::BamlImage::from_baml_value(value.clone()) {
+            return Ok(Self::Image(variant_value));
+        }
+        // Try Audio variant
+        if let Ok(variant_value) = crate::types::BamlAudio::from_baml_value(value.clone()) {
+            return Ok(Self::Audio(variant_value));
+        }
+        // Try Pdf variant
+        if let Ok(variant_value) = crate::types::BamlPdf::from_baml_value(value.clone()) {
+            return Ok(Self::Pdf(variant_value));
+        }
+        // Try Video variant
+        if let Ok(variant_value) = crate::types::BamlVideo::from_baml_value(value.clone()) {
+            return Ok(Self::Video(variant_value));
+        }
+
+        Err(baml_client_rust::BamlError::deserialization(format!(
+            "Could not convert {:?} to Union4AudioOrImageOrPdfOrVideo",
+            value
+        )))
     }
 }

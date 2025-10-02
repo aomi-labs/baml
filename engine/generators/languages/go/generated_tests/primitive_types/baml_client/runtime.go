@@ -27,6 +27,7 @@
 package baml_client
 
 import (
+	"fmt"
 	"os"
 	"primitive_types/baml_client/type_builder"
 	"strings"
@@ -65,6 +66,7 @@ func init() {
 type callOption struct {
 	clientRegistry *baml.ClientRegistry
 	env            map[string]string
+	tags           map[string]string
 	collectors     []baml.Collector
 	onTick         baml.OnTickCallbackData
 	typeBuilder    baml.TypeBuilder
@@ -83,6 +85,13 @@ func WithClientRegistry(clientRegistry *baml.ClientRegistry) CallOptionFunc {
 func WithEnv(env map[string]string) CallOptionFunc {
 	return func(o *callOption) {
 		o.env = env
+	}
+}
+
+// Add tags to the specific function call.
+func WithTags(tags map[string]string) CallOptionFunc {
+	return func(o *callOption) {
+		o.tags = tags
 	}
 }
 
@@ -109,7 +118,7 @@ func (o *onTickCallbackData) OnTick() baml.TickCallback {
 	return o.onTick
 }
 
-func WithExperimentalOnTick(onTick baml.TickCallback) CallOptionFunc {
+func WithOnTick(onTick baml.TickCallback) CallOptionFunc {
 	return func(o *callOption) {
 		collector, err := bamlRuntime.NewCollector("on-tick-collector")
 		if err != nil {
@@ -124,6 +133,12 @@ func WithExperimentalOnTick(onTick baml.TickCallback) CallOptionFunc {
 			onTick:    onTick,
 		}
 	}
+}
+
+// Deprecated: Use WithOnTick instead.
+func WithExperimentalOnTick(onTick baml.TickCallback) CallOptionFunc {
+	fmt.Println("Warning: WithExperimentalOnTick is deprecated. Use WithOnTick instead.")
+	return WithOnTick(onTick)
 }
 
 // Add multiple collectors to the specific function call.

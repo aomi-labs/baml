@@ -120,6 +120,7 @@ pub enum IntermediateData<'a> {
         url: String,
         method: String,
         headers: HashMap<String, String>,
+        client_details: RpcClientDetails,
         body: HTTPBody<'a>,
     },
     RawLLMResponse {
@@ -182,4 +183,5 @@ pub struct LLMUsage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
+    pub cached_input_tokens: Option<u64>,
 }
