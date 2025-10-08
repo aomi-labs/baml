@@ -3,21 +3,21 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context, Result};
 use aws_smithy_runtime_api::client::orchestrator::HttpRequest;
 use baml_types::{
-    tracing::events::{ClientDetails, HTTPBody, HTTPRequest, HTTPResponse, TraceEvent},
     BamlMap,
+    tracing::events::{ClientDetails, HTTPBody, HTTPRequest, HTTPResponse, TraceEvent},
 };
 use bytes::Bytes;
 use http::Response as HttpResponse;
 use internal_baml_jinja::{RenderContext_Client, RenderedChatMessage, RenderedPrompt};
 pub use internal_llm_client::ResponseType;
-use reqwest::{header::HeaderMap, Response, StatusCode};
+use reqwest::{Response, StatusCode, header::HeaderMap};
 use serde::de::DeserializeOwned;
 use serde_json::json;
 
 use crate::{
     internal::llm_client::{
-        traits::{HttpContext, WithClient},
         ErrorCode, LLMErrorResponse, LLMResponse,
+        traits::{HttpContext, WithClient},
     },
     tracingv2::storage::storage::BAML_TRACER,
 };
@@ -440,7 +440,7 @@ pub async fn make_parsed_request(
                 latency: instant_now.elapsed(),
                 message: e.to_string(),
                 code: ErrorCode::from_status(response.status),
-            })
+            });
         }
     };
 

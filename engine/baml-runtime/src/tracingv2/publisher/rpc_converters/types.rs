@@ -1,9 +1,9 @@
 use std::borrow::Cow;
 
-use baml_rpc::{runtime_api, NarrowingType};
+use baml_rpc::{NarrowingType, runtime_api};
 use baml_types::{
-    baml_value::TypeQuery, ir_type::TypeGeneric, type_meta, BamlValueWithMeta, Constraint, HasType,
-    StreamingMode, TypeValue,
+    BamlValueWithMeta, Constraint, HasType, StreamingMode, TypeValue, baml_value::TypeQuery,
+    ir_type::TypeGeneric, type_meta,
 };
 
 use super::{IRRpcState, IntoRpcEvent};
@@ -65,7 +65,8 @@ impl<'a, T: HasType<type_meta::NonStreaming>> IntoRpcEvent<'a, runtime_api::Baml
                                 None => {
                                     baml_log::warn!(
                                         "Unexpected Error. Please report this error on https://github.com/boundaryml/baml/issues.\nCould not determine union variant index for value type: {} for value {}",
-                                        type_ref, value
+                                        type_ref,
+                                        value
                                     );
                                     runtime_api::TypeIndex::NotFound
                                 }

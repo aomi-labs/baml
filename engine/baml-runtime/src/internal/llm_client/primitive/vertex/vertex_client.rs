@@ -10,20 +10,23 @@ use gcp_auth::TokenProvider;
 use internal_baml_core::ir::ClientWalker;
 use internal_baml_jinja::{RenderContext_Client, RenderedChatMessage};
 use internal_llm_client::{
-    vertex::{BaseUrlOrLocation, ResolvedGcpAuthStrategy, ResolvedVertex},
     AllowedRoleMetadata, ClientProvider, ResolvedClientProperty, UnresolvedClientProperty,
+    vertex::{BaseUrlOrLocation, ResolvedGcpAuthStrategy, ResolvedVertex},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[cfg(target_arch = "wasm32")]
-use crate::internal::wasm_jwt::{encode_jwt, JwtError};
+use crate::internal::wasm_jwt::{JwtError, encode_jwt};
 use crate::{
+    RuntimeContext,
     client_registry::ClientProperty,
     internal::llm_client::{
+        ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
+        ModelFeatures, ResolveMediaUrls,
         primitive::{
             anthropic::{self, AnthropicClient},
-            request::{make_parsed_request, RequestBuilder, ResponseType},
+            request::{RequestBuilder, ResponseType, make_parsed_request},
             stream_request::make_stream_request,
             vertex::types::VertexResponse,
         },
@@ -32,11 +35,8 @@ use crate::{
             ToProviderMessage, ToProviderMessageExt, WithChat, WithClient, WithClientProperties,
             WithNoCompletion, WithRetryPolicy, WithStreamChat,
         },
-        ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
-        ModelFeatures, ResolveMediaUrls,
     },
     request::create_client,
-    RuntimeContext,
 };
 
 pub struct VertexClient {

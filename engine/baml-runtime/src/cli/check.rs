@@ -3,7 +3,7 @@ use std::{path::PathBuf, process::exit};
 use anyhow::{Context, Result};
 use internal_baml_core::configuration::GeneratorDefaultClientMode;
 
-use crate::{baml_src_files, BamlRuntime, InternalRuntimeInterface};
+use crate::{BamlRuntime, InternalRuntimeInterface, baml_src_files};
 
 #[derive(clap::Args, Debug)]
 pub struct CheckArgs {

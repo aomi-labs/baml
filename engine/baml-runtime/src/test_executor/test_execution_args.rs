@@ -187,13 +187,17 @@ mod filter_test {
         assert!(
             test_filters(&["*Func::MyTest"], &["OtherFunc::MyTest"]).includes("MyFunc", "MyTest")
         );
-        assert!(!test_filters(&["*Func::MyTest"], &["MyFunc::MyTest"]).includes("MyFunc", "MyTest"));
+        assert!(
+            !test_filters(&["*Func::MyTest"], &["MyFunc::MyTest"]).includes("MyFunc", "MyTest")
+        );
 
         // Case with wildcard in test name
         assert!(
             test_filters(&["MyFunc::*Test"], &["MyFunc::OtherTest"]).includes("MyFunc", "MyTest")
         );
-        assert!(!test_filters(&["MyFunc::*Test"], &["MyFunc::MyTest"]).includes("MyFunc", "MyTest"));
+        assert!(
+            !test_filters(&["MyFunc::*Test"], &["MyFunc::MyTest"]).includes("MyFunc", "MyTest")
+        );
     }
 
     fn test_filters(include: &[&str], exclude: &[&str]) -> TestFilter {

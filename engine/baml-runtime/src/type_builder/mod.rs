@@ -1060,31 +1060,37 @@ mod tests {
         assert_eq!(classes.len(), 2);
         let address_override = classes.get("Address").unwrap();
         assert_eq!(address_override.new_fields.len(), 5); // All fields are new
-        assert!(address_override
-            .new_fields
-            .get("street")
-            .unwrap()
-            .1
-            .alias
-            .is_some());
-        assert!(address_override
-            .new_fields
-            .get("coordinates")
-            .unwrap()
-            .1
-            .skip
-            .unwrap());
+        assert!(
+            address_override
+                .new_fields
+                .get("street")
+                .unwrap()
+                .1
+                .alias
+                .is_some()
+        );
+        assert!(
+            address_override
+                .new_fields
+                .get("coordinates")
+                .unwrap()
+                .1
+                .skip
+                .unwrap()
+        );
 
         // Verify enum overrides
         assert_eq!(enums.len(), 2);
         let priority_override = enums.get("Priority").unwrap();
         assert_eq!(priority_override.values.len(), 4);
-        assert!(priority_override
-            .values
-            .get("HIGH")
-            .unwrap()
-            .alias
-            .is_some());
+        assert!(
+            priority_override
+                .values
+                .get("HIGH")
+                .unwrap()
+                .alias
+                .is_some()
+        );
         assert!(priority_override.values.get("LOW").unwrap().skip.unwrap());
     }
 

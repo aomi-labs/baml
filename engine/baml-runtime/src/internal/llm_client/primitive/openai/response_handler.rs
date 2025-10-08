@@ -1,15 +1,15 @@
 use anyhow::{Context, Result};
 use baml_types::BamlMap;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::types::{
     ChatCompletionResponse, ChatCompletionResponseDelta, ResponseOutputType, ResponsesApiResponse,
     ResponsesApiStreamEvent,
 };
 use crate::internal::llm_client::{
-    primitive::request::RequestBuilder, traits::WithClient, ErrorCode, LLMCompleteResponse,
-    LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
+    ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
+    primitive::request::RequestBuilder, traits::WithClient,
 };
 
 fn to_prompt(

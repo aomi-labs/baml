@@ -2,24 +2,24 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use baml_types::{
+    BamlValueWithMeta, TypeIR,
     ir_type::TypeNonStreaming,
     tracing::events::{FunctionEnd, FunctionStart, TraceData, TraceEvent},
-    BamlValueWithMeta, TypeIR,
 };
 use internal_baml_core::ir::repr::IntermediateRepr;
 use serde_json::json;
 use stream_cancel::Tripwire;
 
 use crate::{
+    FunctionResult, IntoBamlError, PreparedFunctionArgs, RuntimeContextManager, TripWire,
     client_registry::ClientRegistry,
     internal::{
-        llm_client::orchestrator::{orchestrate_stream, OrchestratorNodeIterator},
+        llm_client::orchestrator::{OrchestratorNodeIterator, orchestrate_stream},
         prompt_renderer::PromptRenderer,
     },
     tracing::BamlTracer,
-    tracingv2::storage::storage::{Collector, BAML_TRACER},
+    tracingv2::storage::storage::{BAML_TRACER, Collector},
     type_builder::TypeBuilder,
-    FunctionResult, IntoBamlError, PreparedFunctionArgs, RuntimeContextManager, TripWire,
 };
 
 /// Wrapper that holds a stream of responses from a BAML function call.

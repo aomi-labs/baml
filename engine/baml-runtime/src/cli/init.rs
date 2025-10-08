@@ -10,7 +10,7 @@ use anyhow::Result;
 use baml_types::GeneratorOutputType;
 use which::which;
 
-use crate::cli::init_ui::{show_error, InitUIContext, StepStatus};
+use crate::cli::init_ui::{InitUIContext, StepStatus, show_error};
 
 const BAML_EXTENSION_ID: &str = "boundary.baml-extension";
 
@@ -570,23 +570,21 @@ fn generate_main_baml_content(
         );
 
         let openapi_generate_command = match openapi_client_type {
-        Some("go") => format!(
-            "{cmd} --additional-properties enumClassPrefix=true,isGoSubmodule=true,packageName=baml_client,withGoMod=false",
-        ),
-        Some("java") => format!(
-            "{cmd} --additional-properties invokerPackage=com.boundaryml.baml_client,modelPackage=com.boundaryml.baml_client.model,apiPackage=com.boundaryml.baml_client.api,java8=true && mvn clean install",
-        ),
-        Some("php") => format!(
-            "{cmd} --additional-properties composerPackageName=boundaryml/baml-client,invokerPackage=BamlClient",
-        ),
-        Some("ruby") => format!(
-            "{cmd} --additional-properties gemName=baml_client",
-        ),
-        Some("rust") => format!(
-            "{cmd} --additional-properties packageName=baml-client,avoidBoxedModels=true",
-        ),
-        _ => cmd,
-    };
+            Some("go") => format!(
+                "{cmd} --additional-properties enumClassPrefix=true,isGoSubmodule=true,packageName=baml_client,withGoMod=false",
+            ),
+            Some("java") => format!(
+                "{cmd} --additional-properties invokerPackage=com.boundaryml.baml_client,modelPackage=com.boundaryml.baml_client.model,apiPackage=com.boundaryml.baml_client.api,java8=true && mvn clean install",
+            ),
+            Some("php") => format!(
+                "{cmd} --additional-properties composerPackageName=boundaryml/baml-client,invokerPackage=BamlClient",
+            ),
+            Some("ruby") => format!("{cmd} --additional-properties gemName=baml_client",),
+            Some("rust") => format!(
+                "{cmd} --additional-properties packageName=baml-client,avoidBoxedModels=true",
+            ),
+            _ => cmd,
+        };
 
         let openapi_generate_command = match openapi_client_type {
             Some(_) => format!(
@@ -638,7 +636,9 @@ fn generate_main_baml_content(
     let go_client_package_name = match go_client_package_name {
         Some(package_name) => {
             if package_name == "YOUR_PACKAGE_NAME" {
-                baml_log::warn!("Failed to find go.mod file, please update the client_package_name in your generators.baml file");
+                baml_log::warn!(
+                    "Failed to find go.mod file, please update the client_package_name in your generators.baml file"
+                );
             }
             format!(
                 r#"

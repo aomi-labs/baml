@@ -1,5 +1,5 @@
 use internal_llm_client::{
-    openai::ResolvedOpenAI, ClientProvider, ResolvedClientProperty, UnresolvedClientProperty,
+    ClientProvider, ResolvedClientProperty, UnresolvedClientProperty, openai::ResolvedOpenAI,
 };
 
 use crate::RuntimeContext;

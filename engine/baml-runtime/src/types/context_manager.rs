@@ -6,12 +6,12 @@ use std::{
 
 use anyhow::{Context, Result};
 use baml_ids::FunctionCallId;
-use baml_types::{tracing::events::TraceEvent, BamlValue};
+use baml_types::{BamlValue, tracing::events::TraceEvent};
 
 use super::runtime_context::BamlSrcReader;
 use crate::{
-    client_registry::ClientRegistry, tracing::BamlTracer, tracingv2::storage::storage::BAML_TRACER,
-    type_builder::TypeBuilder, CallCtx, RuntimeContext,
+    CallCtx, RuntimeContext, client_registry::ClientRegistry, tracing::BamlTracer,
+    tracingv2::storage::storage::BAML_TRACER, type_builder::TypeBuilder,
 };
 pub type BamlContext = (
     uuid::Uuid,
@@ -73,7 +73,9 @@ impl RuntimeContextManager {
             .map(|(.., call_id)| call_id.clone())
             .collect();
         if res.is_empty() && !allow_empty {
-            Err(anyhow::anyhow!("No call_id found. This indicates a bug in BAML. Please report this with a stack trace (RUST_BACKTRACE=1)"))
+            Err(anyhow::anyhow!(
+                "No call_id found. This indicates a bug in BAML. Please report this with a stack trace (RUST_BACKTRACE=1)"
+            ))
         } else {
             Ok(res)
         }

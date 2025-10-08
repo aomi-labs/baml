@@ -5,6 +5,7 @@ use internal_baml_core::ir::ClientWalker;
 use internal_baml_jinja::RenderedChatMessage;
 
 use super::{
+    LLMResponse,
     orchestrator::{
         ExecutionScope, IterOrchestrator, OrchestrationScope, OrchestrationState,
         OrchestratorNodeIterator,
@@ -12,10 +13,9 @@ use super::{
     primitive::LLMPrimitiveProvider,
     strategy::LLMStrategyProvider,
     traits::WithRetryPolicy,
-    LLMResponse,
 };
 use crate::{
-    client_registry::ClientProperty, runtime_interface::InternalClientLookup, RuntimeContext,
+    RuntimeContext, client_registry::ClientProperty, runtime_interface::InternalClientLookup,
 };
 
 pub enum LLMProvider {

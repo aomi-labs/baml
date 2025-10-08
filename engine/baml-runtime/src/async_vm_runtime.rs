@@ -12,26 +12,26 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use baml_compiler::{self};
 use baml_ids::FunctionCallId;
-use baml_types::{tracing::events::HTTPRequest, BamlMap, BamlValue, BamlValueWithMeta, Completion};
+use baml_types::{BamlMap, BamlValue, BamlValueWithMeta, Completion, tracing::events::HTTPRequest};
 use baml_vm::{BamlVmProgram, EvalStack, FunctionKind, ObjectIndex, Vm, VmExecState};
 use internal_baml_core::ir::IRHelper;
-use jsonish::{deserializer::deserialize_flags::Flag, ResponseBamlValue, ResponseValueMeta};
+use jsonish::{ResponseBamlValue, ResponseValueMeta, deserializer::deserialize_flags::Flag};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::on_log_event::LogEventCallbackSync;
 use crate::{
+    BamlRuntime as LlmRuntime, BamlSrcReader, FunctionResult, FunctionResultStream,
+    InnerTraceStats, InternalRuntimeInterface, RuntimeContextManager, TripWire,
     client_registry::ClientRegistry,
-    internal::llm_client::{orchestrator::OrchestrationScope, LLMResponse},
+    internal::llm_client::{LLMResponse, orchestrator::OrchestrationScope},
     runtime::InternalBamlRuntime,
     runtime_interface::ExperimentalTracingInterface,
     tracing::TracingCall,
     tracingv2::storage::storage::Collector,
     type_builder::TypeBuilder,
-    BamlRuntime as LlmRuntime, BamlSrcReader, FunctionResult, FunctionResultStream,
-    InnerTraceStats, InternalRuntimeInterface, RuntimeContextManager, TripWire,
 };
 
 /// Async VM runtime.

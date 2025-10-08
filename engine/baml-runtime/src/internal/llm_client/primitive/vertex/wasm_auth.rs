@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     internal::wasm_jwt::encode_jwt,
-    js_callback_provider::{get_js_callback_provider, GcpCredResult},
+    js_callback_provider::{GcpCredResult, get_js_callback_provider},
 };
 
 pub struct VertexAuth(Option<ServiceAccount>);

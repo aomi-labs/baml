@@ -3,14 +3,14 @@ use std::{collections::HashMap, path::PathBuf, pin::Pin};
 use anyhow::{Context, Result};
 use aws_smithy_types::byte_stream::error::Error;
 use internal_llm_client::{AllowedRoleMetadata, FinishReasonFilter};
-use serde_json::{json, Map};
+use serde_json::{Map, json};
 
 mod chat;
 mod completion;
 use std::borrow::Cow;
 
 use baml_types::{BamlMedia, BamlMediaContent, BamlMediaType, BamlValue, MediaBase64, MediaUrl};
-use base64::{prelude::BASE64_STANDARD, Engine};
+use base64::{Engine, prelude::BASE64_STANDARD};
 use futures::stream::StreamExt;
 use infer;
 use internal_baml_core::ir::repr::IntermediateRepr;
@@ -24,10 +24,10 @@ pub use self::{
     chat::{WithChat, WithStreamChat},
     completion::{WithCompletion, WithNoCompletion, WithStreamCompletion},
 };
-use super::{primitive::request::RequestBuilder, LLMResponse, ModelFeatures};
+use super::{LLMResponse, ModelFeatures, primitive::request::RequestBuilder};
 use crate::{
-    internal::{llm_client::ResolveMediaUrls, prompt_renderer::PromptRenderer},
     RenderCurlSettings, RuntimeContext,
+    internal::{llm_client::ResolveMediaUrls, prompt_renderer::PromptRenderer},
 };
 
 pub trait HttpContext {
@@ -412,7 +412,7 @@ where
                     Err(e) => {
                         return Err(LLMResponse::InternalFailure(format!(
                             "Error occurred:\n\n{e:?}"
-                        )))
+                        )));
                     }
                 }
             } else {

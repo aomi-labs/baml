@@ -35,13 +35,7 @@ impl IrFeatures {
                 "Legacy @get is not supported.\n{}\nPlease remove them from your code. See https://docs.boundaryml.com",
                 self.class_getters
                     .iter()
-                    .map(|(class, fields)| {
-                        format!(
-                            "  {}: {}",
-                            class,
-                            fields.join(", ")
-                        )
-                    })
+                    .map(|(class, fields)| { format!("  {}: {}", class, fields.join(", ")) })
                     .collect::<Vec<_>>()
                     .join("\n")
             ));

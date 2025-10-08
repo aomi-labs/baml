@@ -5,13 +5,13 @@ use baml_types::{BamlValue, StreamingMode, TypeIR, TypeValue};
 use internal_baml_core::{
     error_unsupported,
     ir::{
-        repr::IntermediateRepr, FunctionWalker, IRHelper, IRHelperExtended,
-        IRSemanticStreamingHelper,
+        FunctionWalker, IRHelper, IRHelperExtended, IRSemanticStreamingHelper,
+        repr::IntermediateRepr,
     },
 };
 use internal_baml_jinja::{
-    types::OutputFormatContent, RenderContext, RenderContext_Client, RenderedPrompt,
-    TemplateStringMacro,
+    RenderContext, RenderContext_Client, RenderedPrompt, TemplateStringMacro,
+    types::OutputFormatContent,
 };
 use internal_llm_client::ClientSpec;
 use jsonish::{BamlValueWithFlags, ResponseBamlValue};
@@ -19,7 +19,7 @@ use render_output_format::render_output_format;
 use scoped_ir::ScopedIr;
 
 use super::llm_client::parsed_value_to_response;
-use crate::{runtime_context::RuntimeClassOverride, RuntimeContext};
+use crate::{RuntimeContext, runtime_context::RuntimeClassOverride};
 
 #[derive(Debug)]
 pub struct PromptRenderer {

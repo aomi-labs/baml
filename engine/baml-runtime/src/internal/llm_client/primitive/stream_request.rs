@@ -2,8 +2,8 @@ use std::{collections::HashMap, ops::Deref};
 
 use anyhow::{Context, Result};
 use baml_types::{
-    tracing::events::{HTTPRequest, HTTPResponse, HTTPResponseStream, SSEEvent, TraceEvent},
     BamlMap,
+    tracing::events::{HTTPRequest, HTTPResponse, HTTPResponseStream, SSEEvent, TraceEvent},
 };
 use eventsource_stream::Eventsource;
 use futures::{StreamExt, TryStreamExt};
@@ -16,18 +16,18 @@ use super::{
     google::response_handler::scan_google_response_stream,
     openai::response_handler::scan_openai_chat_completion_stream,
     request::{
-        build_and_log_outbound_request, execute_request, to_prompt, EitherResponse, RequestBuilder,
-        ResponseType,
+        EitherResponse, RequestBuilder, ResponseType, build_and_log_outbound_request,
+        execute_request, to_prompt,
     },
     vertex::response_handler::scan_vertex_response_stream,
 };
 use crate::{
+    RuntimeContext,
     internal::llm_client::{
-        traits::{HttpContext, StreamResponse, WithClient},
         ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
+        traits::{HttpContext, StreamResponse, WithClient},
     },
     tracingv2::storage::storage::BAML_TRACER,
-    RuntimeContext,
 };
 
 pub async fn make_stream_request(

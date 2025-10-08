@@ -4,9 +4,9 @@ use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 
 use crate::{
+    BamlRuntime,
     cli::dotenv,
     test_executor::{TestExecutor, TestFilter},
-    BamlRuntime,
 };
 
 #[derive(Args, Clone, Debug)]
@@ -176,10 +176,10 @@ impl TestArgs {
                     }
                 }
                 crate::test_executor::TestRunStatus::Failed(_) => {
-                    return Ok(TestRunResult::TestFailure)
+                    return Ok(TestRunResult::TestFailure);
                 }
                 crate::test_executor::TestRunStatus::Cancelled => {
-                    return Ok(TestRunResult::TestCancelled)
+                    return Ok(TestRunResult::TestCancelled);
                 }
             }
         }

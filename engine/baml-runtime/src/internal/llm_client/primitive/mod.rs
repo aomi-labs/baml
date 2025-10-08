@@ -2,16 +2,17 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use baml_types::{BamlMap, BamlValue};
-use internal_baml_core::ir::{repr::IntermediateRepr, ClientWalker};
+use internal_baml_core::ir::{ClientWalker, repr::IntermediateRepr};
 use internal_baml_jinja::RenderedChatMessage;
 use internal_llm_client::{AllowedRoleMetadata, ClientProvider, OpenAIClientProviderVariant};
 
-pub(crate) use self::request::{json_body, json_headers, JsonBodyInput};
+pub(crate) use self::request::{JsonBodyInput, json_body, json_headers};
 use self::{
     anthropic::AnthropicClient, aws::AwsClient, google::GoogleAIClient, openai::OpenAIClient,
     request::RequestBuilder, vertex::VertexClient,
 };
 use super::{
+    LLMResponse,
     orchestrator::{
         ExecutionScope, IterOrchestrator, OrchestrationScope, OrchestrationState, OrchestratorNode,
         OrchestratorNodeIterator,
@@ -20,11 +21,10 @@ use super::{
         CompletionToProviderBody, HttpContext, ToProviderMessage, WithClient, WithClientProperties,
         WithPrompt, WithRenderRawCurl, WithRetryPolicy, WithSingleCallable, WithStreamable,
     },
-    LLMResponse,
 };
 use crate::{
-    client_registry::ClientProperty, internal::prompt_renderer::PromptRenderer,
-    runtime_interface::InternalClientLookup, RenderCurlSettings, RuntimeContext,
+    RenderCurlSettings, RuntimeContext, client_registry::ClientProperty,
+    internal::prompt_renderer::PromptRenderer, runtime_interface::InternalClientLookup,
 };
 
 mod anthropic;

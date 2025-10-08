@@ -4,12 +4,13 @@ use anyhow::Result;
 use baml_types::{BamlMap, BamlValue, Constraint};
 use internal_baml_core::{
     internal_baml_diagnostics::Diagnostics,
-    ir::{repr::IntermediateRepr, ExprFunctionWalker, FunctionWalker},
+    ir::{ExprFunctionWalker, FunctionWalker, repr::IntermediateRepr},
 };
 use internal_baml_jinja::RenderedPrompt;
 use internal_llm_client::{AllowedRoleMetadata, ClientSpec};
 
 use crate::{
+    FunctionResult, RenderCurlSettings, RuntimeContext, RuntimeContextManager,
     internal::{
         ir_features::IrFeatures,
         llm_client::{
@@ -22,8 +23,7 @@ use crate::{
     tracing::{BamlTracer, TracingCall},
     tracingv2::storage::storage::Collector,
     type_builder::TypeBuilder,
-    types::{on_log_event::LogEventCallbackSync, FunctionResultStream},
-    FunctionResult, RenderCurlSettings, RuntimeContext, RuntimeContextManager,
+    types::{FunctionResultStream, on_log_event::LogEventCallbackSync},
 };
 
 pub(crate) trait RuntimeConstructor {

@@ -12,18 +12,18 @@ use axum::{
     http::{HeaderName, HeaderValue, StatusCode},
     middleware::Next,
     response::{
-        sse::{Event, KeepAlive, Sse},
         Html, IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
     },
     routing::{any, get, post},
 };
 use axum_extra::{
-    headers::{self, authorization::Basic, Authorization, Header},
     TypedHeader,
+    headers::{self, Authorization, Header, authorization::Basic},
 };
 use baml_types::{
-    expr::{Expr, ExprMetadata},
     BamlValue, GeneratorDefaultClientMode, GeneratorOutputType,
+    expr::{Expr, ExprMetadata},
 };
 use error::BamlError;
 use futures::Stream;
@@ -38,8 +38,8 @@ use tokio::{net::TcpListener, sync::RwLock};
 use tokio_stream::StreamExt;
 
 use crate::{
-    client_registry::ClientRegistry, errors::ExposedError, internal::llm_client::LLMResponse,
-    BamlRuntime, FunctionResult, RuntimeContextManager, TripWire,
+    BamlRuntime, FunctionResult, RuntimeContextManager, TripWire, client_registry::ClientRegistry,
+    errors::ExposedError, internal::llm_client::LLMResponse,
 };
 
 #[derive(clap::Args, Clone, Debug)]
@@ -84,7 +84,7 @@ impl ServeArgs {
         &self,
         feature_flags: internal_baml_core::feature_flags::FeatureFlags,
     ) -> Result<()> {
-        let t: Arc<tokio::runtime::Runtime> = BamlRuntime::get_tokio_singleton()?;
+        let t: Arc<tokio::runtime::Runtime> = BamlRuntime::get_tokio_runtime()?;
 
         let (server, tcp_listener) =
             t.block_on(Server::new(self.from.clone(), self.port, feature_flags))?;
@@ -209,7 +209,9 @@ impl Server {
         };
 
         if !password.starts_with("sk-baml") {
-            baml_log::warn!("We recommend using BAML_PASSWORD=sk-baml-... so that static analysis tools can detect if you accidentally commit and push your password.")
+            baml_log::warn!(
+                "We recommend using BAML_PASSWORD=sk-baml-... so that static analysis tools can detect if you accidentally commit and push your password."
+            )
         }
 
         if let Some(XBamlApiKey(baml_api_key)) = baml_api_key {
@@ -424,7 +426,7 @@ Streaming is available via http://localhost:{port}/stream/{{FunctionName}}, but 
                     return BamlError::InvalidArgument {
                         message: format!("Failed to parse __baml_options__: {e}"),
                     }
-                    .into_response()
+                    .into_response();
                 }
             }
         }
@@ -569,7 +571,7 @@ Streaming is available via http://localhost:{port}/stream/{{FunctionName}}, but 
                     return BamlError::InvalidArgument {
                         message: format!("Failed to parse __baml_options__: {e}"),
                     }
-                    .into_response()
+                    .into_response();
                 }
             }
         }

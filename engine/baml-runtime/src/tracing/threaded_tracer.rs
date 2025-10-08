@@ -1,14 +1,14 @@
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use anyhow::Result;
 use tokio::sync::watch;
 use web_time::{Duration, Instant};
 
-use super::api_wrapper::{core_types::LogSchema, APIConfig, APIWrapper, BoundaryAPI};
+use super::api_wrapper::{APIConfig, APIWrapper, BoundaryAPI, core_types::LogSchema};
 use crate::{
+    TraceStats,
     on_log_event::{LogEvent, LogEventCallbackSync, LogEventMetadata},
     tracing::api_wrapper::core_types::{ContentPart, MetadataType, Template, ValueType},
-    TraceStats,
 };
 
 const MAX_TRACE_SEND_CONCURRENCY: usize = 10;

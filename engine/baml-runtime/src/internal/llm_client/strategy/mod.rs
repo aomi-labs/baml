@@ -15,7 +15,7 @@ use super::{
     traits::WithRetryPolicy,
 };
 use crate::{
-    client_registry::ClientProperty, runtime_interface::InternalClientLookup, RuntimeContext,
+    RuntimeContext, client_registry::ClientProperty, runtime_interface::InternalClientLookup,
 };
 
 pub enum LLMStrategyProvider {

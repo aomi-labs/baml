@@ -2,8 +2,8 @@ use internal_baml_core::ir::{FunctionWalker, TestCaseWalker};
 
 use super::InternalBamlRuntime;
 use crate::{
-    internal::ir_features::{IrFeatures, WithInternal},
     InternalRuntimeInterface,
+    internal::ir_features::{IrFeatures, WithInternal},
 };
 
 impl WithInternal for InternalBamlRuntime {

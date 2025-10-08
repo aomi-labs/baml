@@ -1,22 +1,22 @@
 use std::{
     collections::HashMap,
-    fs::{create_dir_all, OpenOptions},
+    fs::{OpenOptions, create_dir_all},
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use baml_compiler::{
     hir::{self, Hir},
     thir::{
         interpret::interpret_thir,
-        typecheck::{typecheck_expression, typecheck_returning_context, VarInfo},
+        typecheck::{VarInfo, typecheck_expression, typecheck_returning_context},
     },
 };
 use baml_types::{
-    expr::ExprMetadata, ir_type::TypeGeneric, BamlValue, BamlValueWithMeta, Completion, TypeIR,
+    BamlValue, BamlValueWithMeta, Completion, TypeIR, expr::ExprMetadata, ir_type::TypeGeneric,
 };
 use clap::Args;
 use crossterm::{
@@ -25,7 +25,7 @@ use crossterm::{
         KeyModifiers, MouseEvent, MouseEventKind,
     },
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use dirs;
 use indexmap::IndexMap;
@@ -39,12 +39,12 @@ use jsonish::{ResponseBamlValue, ResponseValueMeta};
 use log::LevelFilter;
 use pretty::RcDoc;
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span as TuiSpan},
     widgets::{Block, BorderType, Borders, Paragraph, Wrap},
-    Terminal,
 };
 use supports_color::{self, Stream};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};

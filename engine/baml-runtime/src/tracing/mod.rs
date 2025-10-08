@@ -9,8 +9,8 @@ use std::{
 use ::tracing as rust_tracing;
 use anyhow::{Context, Result};
 use baml_types::{
-    tracing::events::{EvaluationContext, FunctionStart, FunctionType, TraceData, TraceEvent},
     BamlMap, BamlMediaType, BamlValue, BamlValueWithMeta,
+    tracing::events::{EvaluationContext, FunctionStart, FunctionType, TraceData, TraceEvent},
 };
 use cfg_if::cfg_if;
 use colored::{ColoredString, Colorize};
@@ -23,22 +23,22 @@ use uuid::Uuid;
 use valuable::Valuable;
 
 use self::api_wrapper::{
-    core_types::{
-        ContentPart, EventChain, IOValue, LLMChat, LLMEventInput, LLMEventInputPrompt,
-        LLMEventSchema, LLMOutputModel, LogSchema, LogSchemaContext, MetadataType, Template,
-        TypeSchema, IO,
-    },
     APIWrapper,
+    core_types::{
+        ContentPart, EventChain, IO, IOValue, LLMChat, LLMEventInput, LLMEventInputPrompt,
+        LLMEventSchema, LLMOutputModel, LogSchema, LogSchemaContext, MetadataType, Template,
+        TypeSchema,
+    },
 };
 use crate::{
+    CallCtx, FunctionResult, InnerTraceStats, RuntimeContext, RuntimeContextManager, TestResponse,
+    TraceStats,
     client_registry::ClientRegistry,
     internal::llm_client::LLMResponse,
     on_log_event::LogEventCallbackSync,
     tracing::api_wrapper::core_types::Role,
-    tracingv2::storage::storage::{Collector, BAML_TRACER},
+    tracingv2::storage::storage::{BAML_TRACER, Collector},
     type_builder::TypeBuilder,
-    CallCtx, FunctionResult, InnerTraceStats, RuntimeContext, RuntimeContextManager, TestResponse,
-    TraceStats,
 };
 
 cfg_if! {

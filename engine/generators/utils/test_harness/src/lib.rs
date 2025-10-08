@@ -117,10 +117,7 @@ impl<L: TestLanguageFeatures> TestStructure<L> {
                         ]
                     }
                     "rust" => {
-                        vec![
-                            "cargo fmt".to_string(),
-                            "cargo check ".to_string(),
-                        ]
+                        vec!["cargo fmt".to_string(), "cargo check ".to_string()]
                     }
                     "python" => vec!["ruff check --fix".to_string()],
                     "typescript" => vec![],
@@ -196,10 +193,7 @@ impl<L: TestLanguageFeatures> TestStructure<L> {
                     ]
                 }
                 "rust" => {
-                    vec![
-                        "cargo fmt".to_string(),
-                        "cargo check ".to_string(),
-                    ]
+                    vec!["cargo fmt".to_string(), "cargo check ".to_string()]
                 }
                 "python" => vec!["ruff check --fix".to_string()],
                 "typescript" => vec![],

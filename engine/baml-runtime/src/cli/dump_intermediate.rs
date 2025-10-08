@@ -5,7 +5,7 @@ use baml_compiler::{compile, hir::Hir};
 use baml_vm::{EvalStack, Object, Value};
 use clap::Parser;
 use internal_baml_core::{
-    internal_baml_diagnostics::SourceFile, ir::repr::IntermediateRepr, validate, ValidatedSchema,
+    ValidatedSchema, internal_baml_diagnostics::SourceFile, ir::repr::IntermediateRepr, validate,
 };
 
 use crate::baml_src_files;

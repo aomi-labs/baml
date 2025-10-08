@@ -8,29 +8,29 @@ use http::header;
 use internal_baml_core::ir::ClientWalker;
 use internal_baml_jinja::{ChatMessagePart, RenderContext_Client, RenderedChatMessage};
 use internal_llm_client::{
-    google_ai::ResolvedGoogleAI, AllowedRoleMetadata, ClientProvider, ResolvedClientProperty,
-    UnresolvedClientProperty,
+    AllowedRoleMetadata, ClientProvider, ResolvedClientProperty, UnresolvedClientProperty,
+    google_ai::ResolvedGoogleAI,
 };
 use secrecy::ExposeSecret;
 use serde_json::json;
 
 use crate::{
+    RuntimeContext,
     client_registry::ClientProperty,
     internal::llm_client::{
+        ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
+        ModelFeatures, ResolveMediaUrls,
         primitive::{
             google::types::GoogleResponse,
-            request::{make_parsed_request, RequestBuilder, ResponseType},
+            request::{RequestBuilder, ResponseType, make_parsed_request},
         },
         traits::{
             CompletionToProviderBody, HttpContext, SseResponseTrait, StreamResponse,
             ToProviderMessage, ToProviderMessageExt, WithChat, WithClient, WithClientProperties,
             WithNoCompletion, WithRetryPolicy, WithStreamChat,
         },
-        ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
-        ModelFeatures, ResolveMediaUrls,
     },
     request::create_client,
-    RuntimeContext,
 };
 
 pub struct GoogleAIClient {

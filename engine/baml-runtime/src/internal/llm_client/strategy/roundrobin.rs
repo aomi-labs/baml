@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{Arc, atomic::AtomicUsize},
 };
 
 use anyhow::{Context, Result};
@@ -12,13 +12,13 @@ use internal_llm_client::{
 use serde::{Serialize, Serializer};
 
 use crate::{
+    RuntimeContext,
     client_registry::ClientProperty,
     internal::llm_client::orchestrator::{
         ExecutionScope, IterOrchestrator, OrchestrationScope, OrchestrationState,
         OrchestratorNodeIterator,
     },
     runtime_interface::InternalClientLookup,
-    RuntimeContext,
 };
 
 #[derive(Debug)]

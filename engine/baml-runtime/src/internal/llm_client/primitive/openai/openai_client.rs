@@ -6,7 +6,7 @@ use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use internal_baml_core::ir::ClientWalker;
 use internal_baml_jinja::{ChatMessagePart, RenderContext_Client, RenderedChatMessage};
-use internal_llm_client::{openai::ResolvedOpenAI, AllowedRoleMetadata, FinishReasonFilter};
+use internal_llm_client::{AllowedRoleMetadata, FinishReasonFilter, openai::ResolvedOpenAI};
 use secrecy::ExposeSecret;
 use serde_json::json;
 
@@ -15,19 +15,19 @@ use super::{
     types::{ChatCompletionResponse, ChatCompletionResponseDelta},
 };
 use crate::{
+    RuntimeContext,
     client_registry::ClientProperty,
     internal::llm_client::{
-        primitive::request::{make_parsed_request, RequestBuilder, ResponseType},
+        ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
+        ModelFeatures, ResolveMediaUrls,
+        primitive::request::{RequestBuilder, ResponseType, make_parsed_request},
         traits::{
             CompletionToProviderBody, HttpContext, SseResponseTrait, StreamResponse,
             ToProviderMessage, ToProviderMessageExt, WithChat, WithClient, WithClientProperties,
             WithNoCompletion, WithRetryPolicy, WithStreamChat,
         },
-        ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
-        ModelFeatures, ResolveMediaUrls,
     },
     request::create_client,
-    RuntimeContext,
 };
 
 pub struct OpenAIClient {
@@ -666,7 +666,9 @@ impl ToProviderMessage for OpenAIClient {
                         );
                     }
                     BamlMediaContent::File(_) => {
-                        anyhow::bail!("BAML internal error (openai): image file should have been resolved, not processed directly.");
+                        anyhow::bail!(
+                            "BAML internal error (openai): image file should have been resolved, not processed directly."
+                        );
                     }
                 }
             }

@@ -212,7 +212,7 @@ impl TestExecutor for BamlRuntime {
                     node_pair.span().map(|s| {
                         (
                             (function_name.to_string(), test_name.to_string()),
-                            format!("{}:{}", s.file.path(), s.line_and_column().0 .0 + 1),
+                            format!("{}:{}", s.file.path(), s.line_and_column().0.0 + 1),
                         )
                     })
                 } else {
@@ -235,7 +235,7 @@ impl TestExecutor for BamlRuntime {
                                         format!(
                                             "{}:{}",
                                             s.file.path(),
-                                            s.line_and_column().0 .0 + 1
+                                            s.line_and_column().0.0 + 1
                                         ),
                                     )
                                 })

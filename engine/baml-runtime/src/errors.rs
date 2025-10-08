@@ -89,9 +89,9 @@ impl std::fmt::Display for ExposedError {
                 detailed_message: _,
             } => {
                 write!(
-                        f,
-                        "LLM client \"{client_name}\" failed with status code: {status_code}\nMessage: {message}"
-                    )
+                    f,
+                    "LLM client \"{client_name}\" failed with status code: {status_code}\nMessage: {message}"
+                )
             }
             ExposedError::AbortError {
                 detailed_message: _,

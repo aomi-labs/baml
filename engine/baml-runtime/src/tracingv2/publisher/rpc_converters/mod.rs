@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use baml_ids::FunctionCallId;
-use baml_rpc::{ast::tops::BamlFunctionId, BamlTypeId};
-use baml_types::{type_meta, HasType};
+use baml_rpc::{BamlTypeId, ast::tops::BamlFunctionId};
+use baml_types::{HasType, type_meta};
 use base64::Engine;
 
 use crate::tracingv2::storage::interface::TraceEventWithMeta;
@@ -248,11 +248,11 @@ mod tests {
     use std::{borrow::Cow, collections::HashMap};
 
     use baml_rpc::{
+        RpcClientDetails,
         ast::type_reference::TypeReference,
         runtime_api::baml_value::{
             BamlValue, Media, MediaValue, TypeIndex, ValueContent, ValueMetadata,
         },
-        RpcClientDetails,
     };
     use indexmap::IndexMap;
 
@@ -650,8 +650,8 @@ mod tests {
         use std::borrow::Cow;
 
         use baml_rpc::runtime_api::{
-            baml_value::{Media, MediaValue},
             IntermediateData, LLMChatMessage, LLMChatMessagePart, TraceData,
+            baml_value::{Media, MediaValue},
         };
 
         let cache = blob_storage::BlobRefCache::new();

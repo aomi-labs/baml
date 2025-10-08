@@ -15,11 +15,11 @@ use std::{
 
 use baml_ids::{FunctionCallId, HttpRequestId};
 use baml_types::{
+    HasType,
     tracing::events::{
         FunctionEnd, FunctionStart, HTTPRequest, HTTPResponse, HTTPResponseStream,
         LoggedLLMRequest, LoggedLLMResponse, SSEEvent, TraceData, TraceEvent,
     },
-    HasType,
 };
 use indexmap::{IndexMap, IndexSet};
 use once_cell::sync::Lazy;

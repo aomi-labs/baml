@@ -10,30 +10,30 @@ use internal_baml_jinja::{
     ChatMessagePart, RenderContext_Client, RenderedChatMessage, RenderedPrompt,
 };
 use internal_llm_client::{
-    anthropic::ResolvedAnthropic, AllowedRoleMetadata, ClientProvider, ResolvedClientProperty,
-    RolesSelection, SupportedRequestModes, UnresolvedClientProperty,
+    AllowedRoleMetadata, ClientProvider, ResolvedClientProperty, RolesSelection,
+    SupportedRequestModes, UnresolvedClientProperty, anthropic::ResolvedAnthropic,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 
 use super::types::MessageChunk;
 use crate::{
+    RuntimeContext,
     client_registry::ClientProperty,
     internal::llm_client::{
+        ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
+        ModelFeatures, ResolveMediaUrls,
         primitive::{
             anthropic::types::AnthropicMessageResponse,
-            request::{make_parsed_request, RequestBuilder, ResponseType},
+            request::{RequestBuilder, ResponseType, make_parsed_request},
         },
         traits::{
             CompletionToProviderBody, HttpContext, SseResponseTrait, StreamResponse,
             ToProviderMessage, ToProviderMessageExt, WithChat, WithClient, WithClientProperties,
             WithNoCompletion, WithRetryPolicy, WithStreamChat,
         },
-        ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
-        ModelFeatures, ResolveMediaUrls,
     },
     request::create_client,
-    RuntimeContext,
 };
 
 // represents client that interacts with the Anthropic API

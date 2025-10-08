@@ -1,13 +1,13 @@
 use anyhow::Result;
 use baml_types::{BamlMap, BamlValue, BamlValueWithMeta, LiteralValue, TypeIR, TypeValue};
 use internal_baml_core::ir::{
-    ir_helpers::{infer_type, infer_type_with_meta, map_types},
     IRHelper, IRHelperExtended, IRSemanticStreamingHelper,
+    ir_helpers::{infer_type, infer_type_with_meta, map_types},
 };
 
 use crate::{
-    runtime_context::{RuntimeClassOverride, RuntimeEnumOverride},
     RuntimeContext,
+    runtime_context::{RuntimeClassOverride, RuntimeEnumOverride},
 };
 
 pub struct ScopedIr<'a> {

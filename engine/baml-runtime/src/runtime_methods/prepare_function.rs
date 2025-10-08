@@ -2,15 +2,15 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
 use baml_types::{
-    tracing::events::{FunctionEnd, FunctionStart, TraceData, TraceEvent},
     BamlMap, BamlValue, BamlValueWithMeta, Constraint, EvaluationContext, TypeIR,
+    tracing::events::{FunctionEnd, FunctionStart, TraceData, TraceEvent},
 };
 use indexmap::IndexMap;
 use internal_baml_core::{
     internal_baml_diagnostics::SourceFile,
     ir::{
-        repr::{IntermediateRepr, Node, TypeBuilderEntry},
         ArgCoercer, ExprFunctionWalker, FunctionWalker, IRHelper, TestCase,
+        repr::{IntermediateRepr, Node, TypeBuilderEntry},
     },
     validate,
 };
@@ -18,28 +18,28 @@ use internal_baml_jinja::RenderedPrompt;
 use internal_llm_client::{AllowedRoleMetadata, ClientSpec};
 
 use crate::{
+    FunctionResult, FunctionResultStream, InternalRuntimeInterface, RenderCurlSettings,
+    RuntimeContext, RuntimeContextManager,
     client_registry::ClientProperty,
     internal::{
         ir_features::{IrFeatures, WithInternal},
         llm_client::{
+            LLMResponse,
             llm_provider::LLMProvider,
             orchestrator::{
-                orchestrate_call, IterOrchestrator, OrchestrationScope, OrchestratorNode,
+                IterOrchestrator, OrchestrationScope, OrchestratorNode, orchestrate_call,
             },
             primitive::LLMPrimitiveProvider,
             retry_policy::CallablePolicy,
             traits::{WithClientProperties, WithPrompt, WithRenderRawCurl},
-            LLMResponse,
         },
         prompt_renderer::PromptRenderer,
     },
     runtime::InternalBamlRuntime,
     runtime_interface::{InternalClientLookup, RuntimeConstructor},
     tracing::BamlTracer,
-    tracingv2::storage::storage::{Collector, BAML_TRACER},
+    tracingv2::storage::storage::{BAML_TRACER, Collector},
     type_builder::TypeBuilder,
-    FunctionResult, FunctionResultStream, InternalRuntimeInterface, RenderCurlSettings,
-    RuntimeContext, RuntimeContextManager,
 };
 
 pub(crate) struct PreparedFunction<'ir> {

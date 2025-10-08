@@ -3,8 +3,8 @@ use std::{convert::Infallible, time::Duration};
 use axum::{
     extract::{self},
     response::{
-        sse::{Event, Sse},
         IntoResponse, Response,
+        sse::{Event, Sse},
     },
 };
 use futures::stream;

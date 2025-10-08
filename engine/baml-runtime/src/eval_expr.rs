@@ -4,11 +4,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use baml_types::{
+    Arrow, BamlMap, BamlValue, BamlValueWithMeta, EvaluationContext, TypeIR, TypeValue,
     expr::{Builtin, Expr, ExprMetadata, Name, VarIndex},
     type_meta::base::TypeMeta,
-    Arrow, BamlMap, BamlValue, BamlValueWithMeta, EvaluationContext, TypeIR, TypeValue,
 };
 use futures::{
     channel::mpsc,
@@ -386,7 +386,7 @@ async fn beta_reduce<'a>(
                             return Err(anyhow!(
                                 "Internal error: {fetch} meta contains no arrow type: {other:?}",
                                 fetch = builtin::functions::FETCH_VALUE,
-                            ))
+                            ));
                         }
                     };
 
@@ -969,12 +969,12 @@ mod tests {
     use baml_types::{BamlMap, BamlValue};
     use futures::channel::mpsc;
     use internal_baml_core::{
-        ir::{repr::make_test_ir, IRHelper},
         FeatureFlags,
+        ir::{IRHelper, repr::make_test_ir},
     };
 
     use super::*;
-    use crate::{internal_baml_diagnostics::Span, BamlRuntime};
+    use crate::{BamlRuntime, internal_baml_diagnostics::Span};
 
     // Make a testing runtime. It assumes the presence of
     // OPENAI_API_KEY environment variable.

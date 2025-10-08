@@ -6,8 +6,8 @@ use std::{
 };
 
 use baml_rpc::{
-    ast::{ast_node_id::AstNodeId, tops::BamlFunctionId},
     BamlTypeId,
+    ast::{ast_node_id::AstNodeId, tops::BamlFunctionId},
 };
 use baml_types::ir_type::TypeNonStreaming;
 use cowstr::CowStr;

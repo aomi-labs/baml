@@ -2,45 +2,44 @@ use std::{borrow::Cow, collections::HashMap, ops::Deref, sync::Arc};
 
 use anyhow::{Context, Result};
 use aws_config::{
-    identity::IdentityCache, retry::RetryConfig, BehaviorVersion, ConfigLoader, Region,
+    BehaviorVersion, ConfigLoader, Region, identity::IdentityCache, retry::RetryConfig,
 };
 use aws_credential_types::{
+    Credentials,
     provider::{
+        ProvideCredentials,
         error::{CredentialsError, CredentialsNotLoaded},
         future::ProvideCredentials as ProvideCredentialsFuture,
-        ProvideCredentials,
     },
-    Credentials,
 };
 use aws_sdk_bedrockruntime::{
-    self as bedrock,
+    self as bedrock, Client as BedrockRuntimeClient,
     config::{Intercept, StalledStreamProtectionConfig},
     operation::converse::ConverseOutput,
     types::CitationsConfig,
-    Client as BedrockRuntimeClient,
 };
 use aws_smithy_json::serialize::JsonObjectWriter;
 use aws_smithy_runtime_api::{client::result::SdkError, http::Headers};
 use aws_smithy_types::{Blob, Document};
 use baml_ids::{FunctionCallId, HttpRequestId};
 use baml_types::{
+    ApiKeyWithProvenance, BamlMap, BamlMedia, BamlMediaContent, BamlMediaType,
     tracing::events::{
         ClientDetails, HTTPBody, HTTPRequest, HTTPResponse, HTTPResponseStream, SSEEvent,
         TraceData, TraceEvent,
     },
-    ApiKeyWithProvenance, BamlMap, BamlMedia, BamlMediaContent, BamlMediaType,
 };
 use futures::stream;
 use internal_baml_core::ir::ClientWalker;
 use internal_baml_jinja::{ChatMessagePart, RenderContext_Client, RenderedChatMessage};
 use internal_llm_client::{
-    aws_bedrock::{self, ResolvedAwsBedrock},
     AllowedRoleMetadata, ClientProvider, ResolvedClientProperty, UnresolvedClientProperty,
+    aws_bedrock::{self, ResolvedAwsBedrock},
 };
-use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
-use serde_json::{json, Map};
+use serde_json::{Map, json};
 use shell_escape::escape;
 use uuid::Uuid;
 use web_time::{Instant, SystemTime};
@@ -50,20 +49,20 @@ use super::custom_http_client;
 #[cfg(target_arch = "wasm32")]
 use super::wasm::WasmAwsCreds;
 use crate::{
+    JsonBodyInput, RenderCurlSettings, RuntimeContext,
     client_registry::ClientProperty,
     internal::llm_client::{
+        ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
+        ModelFeatures, ResolveMediaUrls,
         primitive::request::RequestBuilder,
         traits::{
             HttpContext, StreamResponse, ToProviderMessageExt, WithChat, WithClient,
             WithClientProperties, WithNoCompletion, WithRenderRawCurl, WithRetryPolicy,
             WithStreamChat,
         },
-        ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
-        ModelFeatures, ResolveMediaUrls,
     },
     json_body,
     tracingv2::storage::storage::BAML_TRACER,
-    JsonBodyInput, RenderCurlSettings, RuntimeContext,
 };
 
 // Strip the MIME type prefix ("type/subtype" -> "subtype").
@@ -306,20 +305,32 @@ impl aws_credential_types::provider::ProvideCredentials for ExplicitCredentialsP
     where
         Self: 'a,
     {
-        ProvideCredentialsFuture::ready(match (&self.access_key_id, &self.secret_access_key, &self.session_token) {
-            (None, None, None) => {
-                Err(CredentialsError::unhandled("BAML internal error: ExplicitCredentialsProvider should only be constructed if either access_key_id or secret_access_key are provided"))
-            }
-            (Some(access_key_id), Some(secret_access_key), session_token) => {
-                Ok(Credentials::new(access_key_id, secret_access_key.api_key.expose_secret(), session_token.clone(), None, "baml-explicit-credentials"))
-            }
-            (_, _, None) => {
-                Err(CredentialsError::invalid_configuration("If either access_key_id or secret_access_key are provided, both must be provided."))
-            }
-            (_, _, Some(_)) => {
-                Err(CredentialsError::invalid_configuration("If either access_key_id or secret_access_key are provided, both must be provided. If session_token is provided, all three must be provided."))
-            }
-        })
+        ProvideCredentialsFuture::ready(
+            match (
+                &self.access_key_id,
+                &self.secret_access_key,
+                &self.session_token,
+            ) {
+                (None, None, None) => Err(CredentialsError::unhandled(
+                    "BAML internal error: ExplicitCredentialsProvider should only be constructed if either access_key_id or secret_access_key are provided",
+                )),
+                (Some(access_key_id), Some(secret_access_key), session_token) => {
+                    Ok(Credentials::new(
+                        access_key_id,
+                        secret_access_key.api_key.expose_secret(),
+                        session_token.clone(),
+                        None,
+                        "baml-explicit-credentials",
+                    ))
+                }
+                (_, _, None) => Err(CredentialsError::invalid_configuration(
+                    "If either access_key_id or secret_access_key are provided, both must be provided.",
+                )),
+                (_, _, Some(_)) => Err(CredentialsError::invalid_configuration(
+                    "If either access_key_id or secret_access_key are provided, both must be provided. If session_token is provided, all three must be provided.",
+                )),
+            },
+        )
     }
 }
 
@@ -637,18 +648,22 @@ impl AwsClient {
         // If we didn't find any text blocks, return an error with details about the content
         anyhow::bail!(
             "Expected message output to contain at least one text block, but found none. Content: {:?}",
-            message.content.iter().map(|block| match block {
-                bedrock::types::ContentBlock::Image(_) => "image",
-                bedrock::types::ContentBlock::GuardContent(_) => "guardContent",
-                bedrock::types::ContentBlock::ToolResult(_) => "toolResult",
-                bedrock::types::ContentBlock::ToolUse(_) => "toolUse",
-                bedrock::types::ContentBlock::Text(_) => "text",
-                bedrock::types::ContentBlock::ReasoningContent(_) => "reasoningContent",
-                // bedrock::types::ContentBlock::CachePoint(_) => "cachePoint",
-                bedrock::types::ContentBlock::Document(_) => "document",
-                bedrock::types::ContentBlock::Video(_) => "video",
-                _ => "unknown",
-            }).collect::<Vec<_>>()
+            message
+                .content
+                .iter()
+                .map(|block| match block {
+                    bedrock::types::ContentBlock::Image(_) => "image",
+                    bedrock::types::ContentBlock::GuardContent(_) => "guardContent",
+                    bedrock::types::ContentBlock::ToolResult(_) => "toolResult",
+                    bedrock::types::ContentBlock::ToolUse(_) => "toolUse",
+                    bedrock::types::ContentBlock::Text(_) => "text",
+                    bedrock::types::ContentBlock::ReasoningContent(_) => "reasoningContent",
+                    // bedrock::types::ContentBlock::CachePoint(_) => "cachePoint",
+                    bedrock::types::ContentBlock::Document(_) => "document",
+                    bedrock::types::ContentBlock::Video(_) => "video",
+                    _ => "unknown",
+                })
+                .collect::<Vec<_>>()
         );
     }
 
@@ -850,7 +865,7 @@ impl WithStreamChat for AwsClient {
                     latency: web_time::Duration::ZERO,
                     message: format!("{e:#?}"),
                     code: ErrorCode::Other(2),
-                }))
+                }));
             }
         };
 
@@ -1041,13 +1056,13 @@ impl AwsClient {
             BamlMediaType::Image => match &media.content {
                 BamlMediaContent::File(_) => {
                     anyhow::bail!(
-                            "BAML internal error (AWSBedrock): file should have been resolved to base64"
-                        )
+                        "BAML internal error (AWSBedrock): file should have been resolved to base64"
+                    )
                 }
                 BamlMediaContent::Url(_) => {
                     anyhow::bail!(
-                            "BAML internal error (AWSBedrock): media URL should have been resolved to base64"
-                        )
+                        "BAML internal error (AWSBedrock): media URL should have been resolved to base64"
+                    )
                 }
                 BamlMediaContent::Base64(b64_media) => Ok(bedrock::types::ContentBlock::Image(
                     bedrock::types::ImageBlock::builder()
@@ -1238,7 +1253,7 @@ impl WithChat for AwsClient {
                     latency: web_time::Duration::ZERO,
                     message: format!("{e:#?}"),
                     code: ErrorCode::Other(2),
-                })
+                });
             }
         };
 
@@ -1254,7 +1269,7 @@ impl WithChat for AwsClient {
                     latency: web_time::Duration::ZERO,
                     message: format!("{e:#?}"),
                     code: ErrorCode::Other(2),
-                })
+                });
             }
         };
         let request = aws_client

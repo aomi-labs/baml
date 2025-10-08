@@ -5,8 +5,8 @@ use serde_json::Value;
 
 use super::types::{AnthropicMessageContent, AnthropicMessageResponse, MessageChunk};
 use crate::internal::llm_client::{
-    primitive::request::RequestBuilder, traits::WithClient, ErrorCode, LLMCompleteResponse,
-    LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
+    ErrorCode, LLMCompleteResponse, LLMCompleteResponseMetadata, LLMErrorResponse, LLMResponse,
+    primitive::request::RequestBuilder, traits::WithClient,
 };
 
 fn to_prompt(

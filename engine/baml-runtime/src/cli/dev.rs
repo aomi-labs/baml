@@ -8,7 +8,7 @@ use anyhow::Result;
 use notify_debouncer_full::{new_debouncer, notify::*};
 
 use super::serve::Server;
-use crate::{cli::generate::GenerateArgs, BamlRuntime};
+use crate::{BamlRuntime, cli::generate::GenerateArgs};
 
 #[derive(clap::Args, Clone, Debug)]
 pub struct DevArgs {
@@ -26,7 +26,7 @@ impl DevArgs {
     ) -> Result<()> {
         baml_log::info!("Starting BAML development server on port {}", self.port);
 
-        let t = BamlRuntime::get_tokio_singleton()?;
+        let t = BamlRuntime::get_tokio_runtime()?;
 
         let (tx, rx) = std::sync::mpsc::channel();
 

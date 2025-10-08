@@ -182,10 +182,10 @@ impl LanguageFeatures for RustLanguageFeatures {
                 .walk_all_non_streaming_unions()
                 .filter_map(|t| {
                     ir_to_rust::unions::ir_union_to_rust(&t, &pkg).map(|union_data| {
-                        let all_variants_are_string_literals = union_data
-                            .variants
-                            .iter()
-                            .all(|variant| matches!(variant.literal_kind, Some(RustLiteralKind::String)));
+                        let all_variants_are_string_literals =
+                            union_data.variants.iter().all(|variant| {
+                                matches!(variant.literal_kind, Some(RustLiteralKind::String))
+                            });
 
                         generated_types::UnionRust {
                             name: union_data.name,

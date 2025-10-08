@@ -26,18 +26,18 @@ pub mod type_builder;
 mod types;
 
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     path::PathBuf,
     sync::{Arc, Mutex, OnceLock},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use baml_ids::{FunctionCallId, HttpRequestId};
 use baml_types::{
+    BamlMap, BamlValue, BamlValueWithMeta, Completion, Constraint,
     expr::{Expr, ExprMetadata},
     tracing::events::{ClientDetails, HTTPBody, HTTPRequest, TraceEvent},
-    BamlMap, BamlValue, BamlValueWithMeta, Completion, Constraint,
 };
 use cfg_if::cfg_if;
 #[cfg(not(target_arch = "wasm32"))]
@@ -50,15 +50,15 @@ use futures::{
     future::{join, join_all},
 };
 use generators_lib::{
-    version_check::{self, GeneratorType, VersionCheckMode},
     GenerateOutput, GeneratorArgs,
+    version_check::{self, GeneratorType, VersionCheckMode},
 };
 use indexmap::IndexMap;
 use internal::{
     llm_client::{
         llm_provider::LLMProvider,
         orchestrator::OrchestrationScope,
-        primitive::{json_body, json_headers, JsonBodyInput},
+        primitive::{JsonBodyInput, json_body, json_headers},
         retry_policy::CallablePolicy,
     },
     prompt_renderer::PromptRenderer,
@@ -68,14 +68,14 @@ use internal_baml_core::{
     configuration::{CloudProject, CodegenGenerator, Generator, GeneratorOutputType},
     internal_baml_diagnostics::SerializedSpan,
     ir::{
-        repr::{initial_context, IntermediateRepr},
         FunctionWalker, IRHelperExtended,
+        repr::{IntermediateRepr, initial_context},
     },
 };
 pub use internal_baml_core::{
     internal_baml_diagnostics,
     internal_baml_diagnostics::Diagnostics as DiagnosticsError,
-    ir::{ir_helpers::infer_type, scope_diagnostics, IRHelper, TypeIR, TypeValue},
+    ir::{IRHelper, TypeIR, TypeValue, ir_helpers::infer_type, scope_diagnostics},
 };
 #[cfg(feature = "internal")]
 pub use internal_baml_jinja::{ChatMessagePart, RenderedPrompt};
@@ -96,7 +96,7 @@ use serde_json::{self, json};
 use tracing::{BamlTracer, TracingCall};
 use tracingv2::{
     publisher::flush,
-    storage::storage::{Collector, BAML_TRACER},
+    storage::storage::{BAML_TRACER, Collector},
 };
 use type_builder::TypeBuilder;
 pub use types::*;
@@ -105,11 +105,11 @@ use web_time::{Duration, SystemTime};
 use crate::{
     errors::IntoBamlError,
     internal::llm_client::{LLMCompleteResponse, LLMCompleteResponseMetadata, LLMResponse},
-    test_constraints::{evaluate_test_constraints, TestConstraintsResult},
+    test_constraints::{TestConstraintsResult, evaluate_test_constraints},
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-static TOKIO_SINGLETON: OnceLock<std::io::Result<Arc<tokio::runtime::Runtime>>> = OnceLock::new();
+static TOKIO_RUNTIME: OnceLock<std::io::Result<Arc<tokio::runtime::Runtime>>> = OnceLock::new();
 
 static INIT: std::sync::Once = std::sync::Once::new();
 
@@ -190,6 +190,74 @@ pub struct BamlRuntime {
     pub async_runtime: Arc<tokio::runtime::Runtime>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub struct BamlRuntimeBuilder {
+    tokio_runtime: Option<Arc<tokio::runtime::Runtime>>,
+    feature_flags: internal_baml_core::feature_flags::FeatureFlags,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Default for BamlRuntimeBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl BamlRuntimeBuilder {
+    /// Create a new builder with default feature flags.
+    pub fn new() -> Self {
+        Self {
+            tokio_runtime: None,
+            feature_flags: internal_baml_core::feature_flags::FeatureFlags::new(),
+        }
+    }
+
+    /// Provide a custom Tokio runtime that will be installed before constructing BAML.
+    pub fn with_tokio_runtime(mut self, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+        self.tokio_runtime = Some(runtime);
+        self
+    }
+
+    /// Override the feature flags used when constructing the runtime.
+    pub fn with_feature_flags(
+        mut self,
+        feature_flags: internal_baml_core::feature_flags::FeatureFlags,
+    ) -> Self {
+        self.feature_flags = feature_flags;
+        self
+    }
+
+    /// Build a runtime from a directory source, installing any configured overrides.
+    pub fn build_from_directory<T: AsRef<str>>(
+        mut self,
+        path: &std::path::Path,
+        env_vars: HashMap<T, T>,
+    ) -> Result<BamlRuntime> {
+        if let Some(runtime) = self.tokio_runtime.take() {
+            BamlRuntime::set_tokio_runtime(runtime)?;
+        }
+
+        let feature_flags = self.feature_flags;
+        BamlRuntime::from_directory(path, env_vars, feature_flags)
+    }
+
+    /// Build a runtime from in-memory file content, installing any configured overrides.
+    pub fn build_from_file_content<T: AsRef<str> + std::fmt::Debug, U: AsRef<str>>(
+        mut self,
+        root_path: &str,
+        files: &HashMap<T, T>,
+        env_vars: HashMap<U, U>,
+    ) -> Result<BamlRuntime> {
+        if let Some(runtime) = self.tokio_runtime.take() {
+            BamlRuntime::set_tokio_runtime(runtime)?;
+        }
+
+        let feature_flags = self.feature_flags;
+        BamlRuntime::from_file_content(root_path, files, env_vars, feature_flags)
+    }
+}
+
 pub struct TripWire {
     trip_wire: Option<stream_cancel::Tripwire>,
 
@@ -229,16 +297,42 @@ impl Drop for TripWire {
 
 impl BamlRuntime {
     #[cfg(not(target_arch = "wasm32"))]
-    fn get_tokio_singleton() -> Result<Arc<tokio::runtime::Runtime>> {
-        match TOKIO_SINGLETON.get_or_init(|| tokio::runtime::Runtime::new().map(Arc::new)) {
+    /// Install a custom Tokio runtime that every `BamlRuntime` instance will reuse.
+    pub fn set_tokio_runtime(runtime: Arc<tokio::runtime::Runtime>) -> Result<()> {
+        if let Some(existing) = TOKIO_RUNTIME.get() {
+            match existing {
+                Ok(existing_runtime) => {
+                    if Arc::ptr_eq(existing_runtime, &runtime) {
+                        return Ok(());
+                    }
+                    anyhow::bail!("Tokio runtime already initialized");
+                }
+                Err(e) => anyhow::bail!("Tokio runtime previously failed to initialize: {}", e),
+            }
+        }
+
+        TOKIO_RUNTIME
+            .set(Ok(runtime))
+            .map_err(|_| anyhow!("Tokio runtime already initialized"))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn get_tokio_runtime() -> Result<Arc<tokio::runtime::Runtime>> {
+        match TOKIO_RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().map(Arc::new)) {
             Ok(t) => Ok(t.clone()),
             Err(e) => Err(e.into()),
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    /// Access the shared Tokio runtime used by all `BamlRuntime` instances.
+    pub fn tokio_runtime_handle() -> Result<Arc<tokio::runtime::Runtime>> {
+        Self::get_tokio_runtime()
+    }
+
     fn new_runtime(inner: InternalBamlRuntime, env_vars: &HashMap<String, String>) -> Result<Self> {
         #[cfg(not(target_arch = "wasm32"))]
-        let rt = Self::get_tokio_singleton()?;
+        let rt = Self::get_tokio_runtime()?;
         let inner = Arc::new(inner);
 
         let runtime = BamlRuntime {
@@ -428,7 +522,7 @@ impl BamlRuntime {
             .inner
             .get_test_constraints(function_name, test_name, ctx)
             .unwrap_or_default(); // TODO: Fix this.
-                                  // .get_test_constraints(function_name, test_name, ctx)?;
+        // .get_test_constraints(function_name, test_name, ctx)?;
         Ok((params, constraints))
     }
 

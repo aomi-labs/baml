@@ -5,7 +5,7 @@ use std::{
 };
 
 use baml_rpc::runtime_api::baml_value::{BamlValue, MediaValue, ValueContent};
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;

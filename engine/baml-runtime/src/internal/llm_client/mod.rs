@@ -13,16 +13,16 @@ use std::error::Error;
 
 use anyhow::{Context, Result};
 use baml_types::{BamlMap, BamlValueWithMeta, JinjaExpression, ResponseCheck, TypeIR};
-use internal_baml_core::ir::{repr::IntermediateRepr, ClientWalker, IRHelper, IRHelperExtended};
+use internal_baml_core::ir::{ClientWalker, IRHelper, IRHelperExtended, repr::IntermediateRepr};
 use internal_baml_jinja::RenderedPrompt;
 use internal_llm_client::AllowedRoleMetadata;
 pub use jsonish::ResponseBamlValue;
 use jsonish::{
+    BamlValueWithFlags,
     deserializer::{
-        deserialize_flags::{constraint_results, DeserializerConditions, Flag},
+        deserialize_flags::{DeserializerConditions, Flag, constraint_results},
         semantic_streaming::validate_streaming_state,
     },
-    BamlValueWithFlags,
 };
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -407,10 +407,10 @@ impl crate::tracing::Visualize for LLMErrorResponse {
 #[cfg(test)]
 mod tests {
     use baml_types::{BamlValueWithMeta, TypeIR};
-    use internal_baml_core::ir::repr::{make_test_ir, IntermediateRepr};
+    use internal_baml_core::ir::repr::{IntermediateRepr, make_test_ir};
     use jsonish::{
-        deserializer::{deserialize_flags::DeserializerConditions, types::ValueWithFlags},
         BamlValueWithFlags,
+        deserializer::{deserialize_flags::DeserializerConditions, types::ValueWithFlags},
     };
 
     use super::*;

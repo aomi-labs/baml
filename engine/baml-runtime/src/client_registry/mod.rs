@@ -7,7 +7,7 @@ pub use internal_llm_client::ClientProvider;
 use internal_llm_client::{ClientSpec, PropertyHandler, UnresolvedClientProperty};
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::{internal::llm_client::llm_provider::LLMProvider, RuntimeContext};
+use crate::{RuntimeContext, internal::llm_client::llm_provider::LLMProvider};
 
 #[derive(Clone)]
 pub enum PrimitiveClient {

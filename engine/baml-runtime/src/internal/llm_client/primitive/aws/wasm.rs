@@ -9,11 +9,11 @@ use std::{sync::Arc, time::SystemTime};
 
 use aws_config::{BehaviorVersion, ConfigLoader, SdkConfig};
 use aws_credential_types::{
+    Credentials,
     provider::{
         error::{CredentialsError, CredentialsNotLoaded},
         future::ProvideCredentials,
     },
-    Credentials,
 };
 use aws_smithy_async::{
     rt::sleep::{AsyncSleep, Sleep},
@@ -38,7 +38,7 @@ use futures::Stream;
 use pin_project_lite::pin_project;
 use time::OffsetDateTime;
 
-use crate::{js_callback_provider::get_js_callback_provider, AwsCredResult, JsCallbackProvider};
+use crate::{AwsCredResult, JsCallbackProvider, js_callback_provider::get_js_callback_provider};
 
 pub fn load_aws_config() -> ConfigLoader {
     log::debug!("Loading AWS config for wasm specifically");

@@ -9,19 +9,19 @@ use std::{
 
 use anyhow::{Context, Result};
 use baml_rpc::{
-    ast::tops::{FunctionDefinition, SourceCode, AST},
-    runtime_api::{
-        BlobBatchUploadS3File, BlobMetadataItem, BlobUploadItem, CreateBlobBatchUploadUrl,
-        CreateBlobBatchUploadUrlRequest, CreateBlobBatchUploadUrlResponse,
-    },
     ApiEndpoint, BamlSrcUploadS3File, CheckBamlSrcUpload, CheckBamlSrcUploadRequest,
     CreateTraceEventUploadUrl, CreateTraceEventUploadUrlRequest, CreateTraceEventUploadUrlResponse,
     NamedType, S3UploadMetadata, TraceEventBatch, TypeDefinition, TypeDefinitionSource,
     TypeReference,
+    ast::tops::{AST, FunctionDefinition, SourceCode},
+    runtime_api::{
+        BlobBatchUploadS3File, BlobMetadataItem, BlobUploadItem, CreateBlobBatchUploadUrl,
+        CreateBlobBatchUploadUrlRequest, CreateBlobBatchUploadUrlResponse,
+    },
 };
 use baml_types::{
-    tracing::events::{TraceData, TraceEvent},
     BamlValueWithMeta, HasType, TypeIR,
+    tracing::events::{TraceData, TraceEvent},
 };
 use futures::StreamExt;
 use http::{HeaderMap, HeaderName, HeaderValue};
@@ -35,7 +35,7 @@ use tracing::field;
 use wasmtimer::tokio::*;
 
 use super::rpc_converters::{
-    to_rpc_event, BlobRefCache, BlobStorage, IRRpcState, IntoRpcEvent, TypeLookup,
+    BlobRefCache, BlobStorage, IRRpcState, IntoRpcEvent, TypeLookup, to_rpc_event,
 };
 use crate::{
     runtime::{AstSignatureWrapper, InternalBamlRuntime},
